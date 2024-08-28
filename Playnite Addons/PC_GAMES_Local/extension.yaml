@@ -1,6 +1,6 @@
 ﻿Id: PC_GAMES_Local_0745ac4f-df95-4043-8274-cf2556500c13
-Name: Custom Library Importer
-Author: John Doe
+Name: Local PC Games Importer
+Author: Koriebonx98
 Version: 1.0
 Module: PC_GAMES_Local.dll
 Type: GameLibrary
