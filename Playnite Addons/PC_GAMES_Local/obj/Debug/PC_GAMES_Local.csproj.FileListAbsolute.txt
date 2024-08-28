@@ -1,0 +1,17 @@
+F:\DEV\Installion\PC_GAMES_Local\obj\Debug\PC_GAMES_Local.csproj.AssemblyReference.cache
+F:\DEV\Installion\PC_GAMES_Local\obj\Debug\App.baml
+F:\DEV\Installion\PC_GAMES_Local\obj\Debug\PC_GAMES_LocalSettingsView.baml
+F:\DEV\Installion\PC_GAMES_Local\obj\Debug\PC_GAMES_LocalSettingsView.g.cs
+F:\DEV\Installion\PC_GAMES_Local\obj\Debug\PC_GAMES_Local_MarkupCompile.cache
+F:\DEV\Installion\PC_GAMES_Local\obj\Debug\PC_GAMES_Local.g.resources
+F:\DEV\Installion\PC_GAMES_Local\obj\Debug\PC_GAMES_Local.csproj.CoreCompileInputs.cache
+F:\DEV\Installion\PC_GAMES_Local\bin\Debug\extension.yaml
+F:\DEV\Installion\PC_GAMES_Local\bin\Debug\icon.png
+F:\DEV\Installion\PC_GAMES_Local\bin\Debug\Localization\en_US.xaml
+F:\DEV\Installion\PC_GAMES_Local\bin\Debug\PC_GAMES_Local.dll
+F:\DEV\Installion\PC_GAMES_Local\bin\Debug\PC_GAMES_Local.pdb
+F:\DEV\Installion\PC_GAMES_Local\bin\Debug\Playnite.SDK.dll
+F:\DEV\Installion\PC_GAMES_Local\bin\Debug\Playnite.SDK.xml
+F:\DEV\Installion\PC_GAMES_Local\obj\Debug\PC_GAMES_Local.csproj.CopyComplete
+F:\DEV\Installion\PC_GAMES_Local\obj\Debug\PC_GAMES_Local.dll
+F:\DEV\Installion\PC_GAMES_Local\obj\Debug\PC_GAMES_Local.pdb
