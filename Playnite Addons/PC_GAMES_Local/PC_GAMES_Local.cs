@@ -1,4 +1,4 @@
-﻿using Playnite.SDK;
+using Playnite.SDK;
 using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
@@ -55,19 +55,36 @@ namespace PC_GAMES_Local
                         Name = gameName,
                         Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("pc_windows") },
                         GameId = gameName.ToLower(),
-                        GameActions = exeFiles.Select(exe => new GameAction()
-                        {
-                            Type = GameActionType.File,
-                            Path = $"{{InstallDir}}\\{GetRelativePath(folder, exe).Replace(gameName, "").TrimStart('\\')}",
-                            Name = Path.GetFileNameWithoutExtension(exe),
-                            IsPlayAction = true,
-                            WorkingDir = "{InstallDir}"
-                        }).ToList(),
+                        GameActions = new List<GameAction>(),
                         IsInstalled = exeFiles.Any(),
                         InstallDirectory = folder,
                         Icon = new MetadataFile(Path.Combine(folder, "icon.png")),
                         BackgroundImage = new MetadataFile(Path.Combine(folder, "background.png"))
                     };
+
+                    // Add play actions
+                    gameMetadata.GameActions.AddRange(exeFiles.Where(exe => !exe.ToLower().Contains("unins")).Select(exe => new GameAction()
+                    {
+                        Type = GameActionType.File,
+                        Path = $"{{InstallDir}}\\{GetRelativePath(folder, exe).Replace(gameName, "").TrimStart('\\')}",
+                        Name = Path.GetFileNameWithoutExtension(exe),
+                        IsPlayAction = true,
+                        WorkingDir = "{InstallDir}"
+                    }));
+
+                    // Add Uninstall action if found
+                    var uninstallExe = exeFiles.FirstOrDefault(exe => exe.ToLower().Contains("unins"));
+                    if (uninstallExe != null)
+                    {
+                        gameMetadata.GameActions.Add(new GameAction()
+                        {
+                            Type = GameActionType.File,
+                            Path = uninstallExe,
+                            Name = "Uninstall",
+                            IsPlayAction = false,
+                            WorkingDir = Path.GetDirectoryName(uninstallExe)
+                        });
+                    }
 
                     games.Add(gameMetadata);
                 }
@@ -83,15 +100,50 @@ namespace PC_GAMES_Local
                     var existingGame = games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
                     if (existingGame != null)
                     {
-                        if (setupExe != null)
+                        // Update Install action if it exists
+                        var installAction = existingGame.GameActions.FirstOrDefault(a => a.Name == "Install");
+                        if (installAction != null && installAction.Path != setupExe)
                         {
-                            existingGame.GameActions.Add(new GameAction()
+                            installAction.Path = setupExe;
+                            installAction.WorkingDir = Path.GetDirectoryName(setupExe);
+                        }
+                        else if (setupExe != null)
+                        {
+                            existingGame.GameActions.Insert(0, new GameAction()
                             {
                                 Type = GameActionType.File,
                                 Path = setupExe,
                                 Name = "Install",
                                 IsPlayAction = false,
                                 WorkingDir = Path.GetDirectoryName(setupExe)
+                            });
+                        }
+
+                        // Remove any play actions that are uninstall executables
+                        existingGame.GameActions.RemoveAll(a => a.IsPlayAction && a.Path.ToLower().Contains("unins"));
+
+                        // Update play actions if their directories have changed
+                        foreach (var action in existingGame.GameActions.Where(a => a.IsPlayAction))
+                        {
+                            var newPath = exeFiles.FirstOrDefault(exe => Path.GetFileNameWithoutExtension(exe) == action.Name);
+                            if (newPath != null && action.Path != newPath)
+                            {
+                                action.Path = newPath;
+                                action.WorkingDir = Path.GetDirectoryName(newPath);
+                            }
+                        }
+
+                        // Add Uninstall action if found
+                        var uninstallExe = exeFiles.FirstOrDefault(exe => exe.ToLower().Contains("unins"));
+                        if (uninstallExe != null && !existingGame.GameActions.Any(a => a.Name == "Uninstall"))
+                        {
+                            existingGame.GameActions.Add(new GameAction()
+                            {
+                                Type = GameActionType.File,
+                                Path = uninstallExe,
+                                Name = "Uninstall",
+                                IsPlayAction = false,
+                                WorkingDir = Path.GetDirectoryName(uninstallExe)
                             });
                         }
                     }
@@ -102,21 +154,38 @@ namespace PC_GAMES_Local
                             Name = gameName,
                             GameId = gameName.ToLower(),
                             Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("pc_windows") },
-                            GameActions = setupExe != null ? new List<GameAction>
-                            {
-                                new GameAction()
-                                {
-                                    Type = GameActionType.File,
-                                    Path = setupExe,
-                                    Name = "Install",
-                                    IsPlayAction = false, // Set as the primary action
-                                    WorkingDir = Path.GetDirectoryName(setupExe)
-                                }
-                            } : new List<GameAction>(),
+                            GameActions = new List<GameAction>(),
                             IsInstalled = false,
                             Icon = new MetadataFile(Path.Combine(folder, "icon.png")),
                             BackgroundImage = new MetadataFile(Path.Combine(folder, "background.png"))
                         };
+
+                        // Add Install action
+                        if (setupExe != null)
+                        {
+                            gameMetadata.GameActions.Add(new GameAction()
+                            {
+                                Type = GameActionType.File,
+                                Path = setupExe,
+                                Name = "Install",
+                                IsPlayAction = false,
+                                WorkingDir = Path.GetDirectoryName(setupExe)
+                            });
+                        }
+
+                        // Add Uninstall action if found
+                        var uninstallExe = exeFiles.FirstOrDefault(exe => exe.ToLower().Contains("unins"));
+                        if (uninstallExe != null)
+                        {
+                            gameMetadata.GameActions.Add(new GameAction()
+                            {
+                                Type = GameActionType.File,
+                                Path = uninstallExe,
+                                Name = "Uninstall",
+                                IsPlayAction = false,
+                                WorkingDir = Path.GetDirectoryName(uninstallExe)
+                            });
+                        }
 
                         games.Add(gameMetadata);
                     }
