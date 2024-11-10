@@ -191,97 +191,83 @@ namespace PC_GAMES_Local
             }
         }
 
-      public void GameInstaller(Game game)
-{
-    // Check the "Games" directory first
-    var gamesDir = Path.Combine(game.InstallDirectory, "Games");
-    if (Directory.Exists(gamesDir))
-    {
-        game.InstallDirectory = gamesDir;
-    }
-    else
-    {
-        // If "Games" directory is not found, use the "Repacks" directory
-        var repacksDir = Path.Combine(game.InstallDirectory, "Repacks");
-        if (Directory.Exists(repacksDir))
+        public void GameInstaller(Game game)
         {
-            game.InstallDirectory = repacksDir;
-        }
-    }
-
-    var setupExe = Directory.GetFiles(game.InstallDirectory, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
-    if (!string.IsNullOrEmpty(setupExe))
-    {
-        using (var process = new Process())
-        {
-            process.StartInfo.FileName = setupExe;
-            process.StartInfo.WorkingDirectory = game.InstallDirectory;
-            process.StartInfo.UseShellExecute = true;
-            process.Start();
-            process.WaitForExit();
-        }
-
-        // Verify installation by checking "Games" folder
-        if (Directory.Exists(gamesDir))
-        {
-            game.IsInstalled = true;
-            game.InstallDirectory = gamesDir;
-            API.Instance.Database.Games.Update(game);
-
-            // Refresh Playnite database to reflect the installation status
-            API.Instance.MainView.SelectGame(game.Id);
-        }
-        else
-        {
-            game.IsInstalled = false;
-            API.Instance.Dialogs.ShowErrorMessage("Game installation failed or game not found in 'Games' folder.", "Installation Error");
-        }
-    }
-    else
-    {
-        game.InstallDirectory = null;
-        API.Instance.Dialogs.ShowErrorMessage("Setup.exe not found. Installation cancelled.", "Error");
-    }
-}
-    }
-
-    public class LocalInstallController : InstallController
-    {
-        private readonly PC_GAMES_Local pluginInstance;
-
-        public LocalInstallController(Game game, PC_GAMES_Local instance) : base(game)
-        {
-            pluginInstance = instance;
-            Name = "Install using setup.exe";
-        }
-
-        public override void Install(InstallActionArgs args)
-        {
-            pluginInstance.GameInstaller(Game);
-        }
-    }
-
-    public class LocalUninstallController : UninstallController
-    {
-        private readonly string uninstallPath;
-
-        public LocalUninstallController(Game game, string uninstallPath) : base(game)
-        {
-            this.uninstallPath = uninstallPath;
-            Name = "Uninstall using setup.exe";
-        }
-
-        public override void Uninstall(UninstallActionArgs args)
-        {
-            using (var process = new Process())
+            var setupExe = Directory.GetFiles(game.InstallDirectory, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
+            if (!string.IsNullOrEmpty(setupExe))
             {
-                process.StartInfo.FileName = uninstallPath;
-                process.StartInfo.UseShellExecute = true;
-                process.Start();
-                process.WaitForExit();
+                using (var process = new Process())
+                {
+                    process.StartInfo.FileName = setupExe;
+                    process.StartInfo.WorkingDirectory = game.InstallDirectory;
+                    process.StartInfo.UseShellExecute = true;
+                    process.Start();
+                    process.WaitForExit();
+                }
+
+                // Signal that the installation is completed
+                InvokeOnInstalled(new GameInstalledEventArgs(game.Id));
             }
-            Game.IsInstalled = false;
-            API.Instance.Database.Games.Update(Game);
+            else
+            {
+                API.Instance.Dialogs.ShowErrorMessage("Setup.exe not found. Installation cancelled.", "Error");
+            }
+        }
+
+        public class LocalInstallController : InstallController
+        {
+            private readonly PC_GAMES_Local pluginInstance;
+
+            public LocalInstallController(Game game, PC_GAMES_Local instance) : base(game)
+            {
+                pluginInstance = instance;
+                Name = "Install using setup.exe";
+            }
+
+            public override void Install(InstallActionArgs args)
+            {
+                pluginInstance.GameInstaller(Game);
+            }
+        }
+
+        protected void InvokeOnInstalled(GameInstalledEventArgs args)
+        {
+            // Playnite will handle updating the game's state
+            PlayniteApi.Notifications.Add(new NotificationMessage("InstallCompleted", $"Installation of {API.Instance.Database.Games.Get(args.GameId).Name} is complete!", NotificationType.Info));
+        }
+
+        public class LocalUninstallController : UninstallController
+        {
+            private readonly string uninstallPath;
+
+            public LocalUninstallController(Game game, string uninstallPath) : base(game)
+            {
+                this.uninstallPath = uninstallPath;
+                Name = "Uninstall using setup.exe";
+            }
+
+            public override void Uninstall(UninstallActionArgs args)
+            {
+                using (var process = new Process())
+                {
+                    process.StartInfo.FileName = uninstallPath;
+                    process.StartInfo.UseShellExecute = true;
+                    process.Start();
+                    process.WaitForExit();
+                }
+                Game.IsInstalled = false;
+                API.Instance.Database.Games.Update(Game);
+            }
+        }
+    }
+
+    public class GameInstalledEventArgs : EventArgs
+    {
+        public Guid GameId { get; private set; }
+
+        public GameInstalledEventArgs(Guid gameId)
+        {
+            GameId = gameId;
         }
     }
 }
