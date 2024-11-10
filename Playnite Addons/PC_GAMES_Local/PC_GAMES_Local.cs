@@ -179,15 +179,15 @@ namespace PC_GAMES_Local
         {
             if (args.Game.PluginId != Id) yield break;
 
-            var setupExe = Directory.GetFiles(args.Game.InstallDirectory, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
-            if (setupExe == null)
+            var uninstallExe = Path.Combine(args.Game.InstallDirectory, "unins000.exe");
+            if (!File.Exists(uninstallExe))
             {
-                logger.Debug($"No setup.exe found for {args.Game.Name}, ID: {args.Game.GameId}");
-                PlayniteApi.Dialogs.ShowErrorMessage("No setup.exe found.", "Uninstall error");
+                logger.Debug($"No unins000.exe found for {args.Game.Name}, ID: {args.Game.GameId}");
+                PlayniteApi.Dialogs.ShowErrorMessage("No unins000.exe found.", "Uninstall error");
             }
             else
             {
-                yield return new LocalUninstallController(args.Game, setupExe);
+                yield return new LocalUninstallController(args.Game, uninstallExe);
             }
         }
 
@@ -243,7 +243,7 @@ namespace PC_GAMES_Local
             public LocalUninstallController(Game game, string uninstallPath) : base(game)
             {
                 this.uninstallPath = uninstallPath;
-                Name = "Uninstall using setup.exe";
+                Name = "Uninstall using unins000.exe";
             }
 
             public override void Uninstall(UninstallActionArgs args)
