@@ -3,6 +3,7 @@ using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -16,7 +17,6 @@ namespace PC_GAMES_Local
 
         public override Guid Id { get; } = Guid.Parse("7a9fcdb1-3f2c-4737-a84d-067db39910bb");
         public override string Name => "PC Games Local";
-        public override LibraryClient Client { get; } = new PC_GAMES_LocalClient();
 
         public PC_GAMES_Local(IPlayniteAPI api) : base(api)
         {
@@ -28,171 +28,260 @@ namespace PC_GAMES_Local
         {
             var games = new List<GameMetadata>();
             var drives = DriveInfo.GetDrives().Where(d => d.IsReady && (d.DriveType == DriveType.Fixed || d.DriveType == DriveType.Network));
-            var (folderExclusions, exeExclusions) = LoadExclusions();
+            var exclusions = LoadExclusions();
 
             foreach (var drive in drives)
             {
                 var gamesFolderPath = Path.Combine(drive.RootDirectory.FullName, "Games");
                 var repacksFolderPath = Path.Combine(drive.RootDirectory.FullName, "Repacks");
+
                 var gameFolders = Directory.Exists(gamesFolderPath) ? Directory.GetDirectories(gamesFolderPath) : new string[0];
                 var repackFolders = Directory.Exists(repacksFolderPath) ? Directory.GetDirectories(repacksFolderPath) : new string[0];
-
-                var gameDict = new Dictionary<string, (string folder, bool isRepack)>();
 
                 foreach (var folder in gameFolders)
                 {
                     var gameName = CleanGameName(Path.GetFileName(folder));
-                    gameDict[gameName.ToLower()] = (folder, false);
-                }
-
-                foreach (var folder in repackFolders)
-                {
-                    var gameName = CleanGameName(Path.GetFileName(folder));
-                    if (gameDict.ContainsKey(gameName.ToLower()))
-                    {
-                        gameDict[gameName.ToLower()] = (folder, true);
-                    }
-                    else
-                    {
-                        gameDict[gameName.ToLower()] = (folder, true);
-                    }
-                }
-
-                foreach (var game in gameDict)
-                {
-                    var folder = game.Value.folder;
-                    var gameName = CleanGameName(Path.GetFileName(folder));
-
-                    if (folderExclusions.Any(ex => folder.IndexOf(ex, StringComparison.OrdinalIgnoreCase) >= 0))
-                        continue;
-
                     var exeFiles = Directory.GetFiles(folder, "*.exe", SearchOption.AllDirectories)
-                        .Where(exe => !exeExclusions.Contains(Path.GetFileName(exe))).ToList();
+                                            .Where(exe => !exclusions.Contains(Path.GetFileName(exe)));
 
-                    var gameMetadata = new GameMetadata
+                    if (exclusions.Contains(Path.GetFileName(folder)))
+                    {
+                        continue;
+                    }
+
+                    var gameMetadata = new GameMetadata()
                     {
                         Name = gameName,
                         Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("pc_windows") },
                         GameId = gameName.ToLower(),
                         GameActions = new List<GameAction>(),
-                        IsInstalled = !game.Value.isRepack || gameFolders.Any(f => f.Contains(gameName)),
-                        InstallDirectory = !game.Value.isRepack ? folder : "",
+                        IsInstalled = exeFiles.Any(),
+                        InstallDirectory = folder,
                         Icon = new MetadataFile(Path.Combine(folder, "icon.png")),
                         BackgroundImage = new MetadataFile(Path.Combine(folder, "background.png"))
                     };
 
-                    // Add Install action for repacks
-                    if (game.Value.isRepack)
-                    {
-                        var setupExe = exeFiles.FirstOrDefault(exe => exe.ToLower().Contains("setup"));
-                        if (setupExe != null)
-                        {
-                            gameMetadata.GameActions.Add(new GameAction
-                            {
-                                Type = GameActionType.File,
-                                Path = setupExe,
-                                Name = "Install",
-                                IsPlayAction = false,
-                                WorkingDir = Path.GetDirectoryName(setupExe)
-                            });
-                        }
-                    }
-
                     // Add play actions
-                    gameMetadata.GameActions.AddRange(exeFiles
-                        .Where(exe => !exe.ToLower().Contains("unins"))
-                        .Select(exe => new GameAction
-                        {
-                            Type = GameActionType.File,
-                            Path = $"{{InstallDir}}\\{GetRelativePath(folder, exe).Replace(gameName, "").TrimStart('\\')}",
-                            Name = Path.GetFileNameWithoutExtension(exe),
-                            IsPlayAction = true,
-                            WorkingDir = "{InstallDir}"
-                        }));
-
-                    // Add Uninstall action if found
-                    var uninstallExe = exeFiles.FirstOrDefault(exe => exe.ToLower().Contains("unins"));
-                    if (uninstallExe != null)
+                    gameMetadata.GameActions.AddRange(exeFiles.Where(exe => !exe.ToLower().Contains("unins")).Select(exe => new GameAction()
                     {
-                        gameMetadata.GameActions.Add(new GameAction
-                        {
-                            Type = GameActionType.File,
-                            Path = uninstallExe,
-                            Name = "Uninstall",
-                            IsPlayAction = false,
-                            WorkingDir = Path.GetDirectoryName(uninstallExe)
-                        });
-                    }
+                        Type = GameActionType.File,
+                        Path = $"{{InstallDir}}\\{GetRelativePath(folder, exe).Replace(gameName, "").TrimStart('\\')}",
+                        Name = Path.GetFileNameWithoutExtension(exe),
+                        IsPlayAction = true,
+                        WorkingDir = "{InstallDir}"
+                    }));
 
                     games.Add(gameMetadata);
+                }
+
+                foreach (var folder in repackFolders)
+                {
+                    var gameName = CleanGameName(Path.GetFileName(folder));
+                    var exeFiles = Directory.GetFiles(folder, "*.exe", SearchOption.AllDirectories)
+                                            .Where(exe => !exclusions.Contains(Path.GetFileName(exe)));
+
+                    var setupExe = exeFiles.FirstOrDefault(exe => exe.ToLower().Contains("setup"));
+
+                    var existingGame = games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
+                    if (existingGame != null)
+                    {
+                        if (!existingGame.IsInstalled)
+                        {
+                            existingGame.InstallDirectory = folder;
+                            existingGame.GameActions.RemoveAll(a => a.IsPlayAction && a.Path.ToLower().Contains("unins"));
+
+                            foreach (var action in existingGame.GameActions.Where(a => a.IsPlayAction))
+                            {
+                                var newPath = exeFiles.FirstOrDefault(exe => Path.GetFileNameWithoutExtension(exe) == action.Name);
+                                if (newPath != null && action.Path != newPath)
+                                {
+                                    action.Path = newPath;
+                                    action.WorkingDir = Path.GetDirectoryName(newPath);
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        var gameMetadata = new GameMetadata()
+                        {
+                            Name = gameName,
+                            GameId = gameName.ToLower(),
+                            Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("pc_windows") },
+                            GameActions = new List<GameAction>(),
+                            IsInstalled = false,
+                            InstallDirectory = folder,
+                            Icon = new MetadataFile(Path.Combine(folder, "icon.png")),
+                            BackgroundImage = new MetadataFile(Path.Combine(folder, "background.png"))
+                        };
+
+                        games.Add(gameMetadata);
+                    }
                 }
             }
 
             return games;
         }
 
-        private (List<string> folderExclusions, List<string> exeExclusions) LoadExclusions()
+        private List<string> LoadExclusions()
         {
-            var folderExclusions = new List<string>();
-            var exeExclusions = new List<string>();
             var exclusionsFilePath = Path.Combine(GetPluginUserDataPath(), "Exclusions.txt");
-
             if (!File.Exists(exclusionsFilePath))
             {
-                File.WriteAllText(exclusionsFilePath, "Folders:\n\nExe's:\n");
+                File.WriteAllText(exclusionsFilePath, string.Empty);
             }
 
-            var lines = File.ReadAllLines(exclusionsFilePath);
-            bool isFolderSection = false, isExeSection = false;
-
-            foreach (var line in lines)
-            {
-                if (string.IsNullOrWhiteSpace(line))
-                    continue;
-
-                if (line.StartsWith("Folders:", StringComparison.OrdinalIgnoreCase))
-                {
-                    isFolderSection = true;
-                    isExeSection = false;
-                    continue;
-                }
-
-                if (line.StartsWith("Exe's:", StringComparison.OrdinalIgnoreCase))
-                {
-                    isFolderSection = false;
-                    isExeSection = true;
-                    continue;
-                }
-
-                if (isFolderSection)
-                    folderExclusions.Add(line.Trim('\"'));
-                else if (isExeSection)
-                    exeExclusions.Add(line.Trim('\"'));
-            }
-
-            return (folderExclusions, exeExclusions);
+            return File.ReadAllLines(exclusionsFilePath)
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .Select(line => line.Trim('\"').Trim())
+                .ToList();
         }
 
-        private string CleanGameName(string folderName) => Regex.Replace(folderName, @"[\( 
+        private string CleanGameName(string folderName)
+        {
+            return Regex.Replace(folderName, @"[\(
 
 \[].*?[\)\]
 
- ]", "").Trim();
+]", "").Trim();
+        }
 
         private string GetRelativePath(string fromPath, string toPath)
         {
-            var fromUri = new Uri(fromPath);
-            var toUri = new Uri(toPath);
+            Uri fromUri = new Uri(fromPath);
+            Uri toUri = new Uri(toPath);
 
             if (fromUri.Scheme != toUri.Scheme)
+            {
                 return toPath;
+            }
 
-            var relativeUri = fromUri.MakeRelativeUri(toUri);
-            var relativePath = Uri.UnescapeDataString(relativeUri.ToString());
+            Uri relativeUri = fromUri.MakeRelativeUri(toUri);
+            string relativePath = Uri.UnescapeDataString(relativeUri.ToString());
 
-            return toUri.Scheme.Equals("file", StringComparison.InvariantCultureIgnoreCase)
-                ? relativePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
-                : relativePath;
+            if (toUri.Scheme.Equals("file", StringComparison.InvariantCultureIgnoreCase))
+            {
+                relativePath = relativePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+            }
+
+            return relativePath;
+        }
+
+        public override IEnumerable<InstallController> GetInstallActions(GetInstallActionsArgs args)
+        {
+            if (args.Game.PluginId == Id)
+            {
+                yield return new LocalInstallController(args.Game, this);
+            }
+        }
+
+        public override IEnumerable<UninstallController> GetUninstallActions(GetUninstallActionsArgs args)
+        {
+            if (args.Game.PluginId != Id) yield break;
+
+            var setupExe = Directory.GetFiles(args.Game.InstallDirectory, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
+            if (setupExe == null)
+            {
+                logger.Debug($"No setup.exe found for {args.Game.Name}, ID: {args.Game.GameId}");
+                PlayniteApi.Dialogs.ShowErrorMessage("No setup.exe found.", "Uninstall error");
+            }
+            else
+            {
+                yield return new LocalUninstallController(args.Game, setupExe);
+            }
+        }
+
+      public void GameInstaller(Game game)
+{
+    // Check the "Games" directory first
+    var gamesDir = Path.Combine(game.InstallDirectory, "Games");
+    if (Directory.Exists(gamesDir))
+    {
+        game.InstallDirectory = gamesDir;
+    }
+    else
+    {
+        // If "Games" directory is not found, use the "Repacks" directory
+        var repacksDir = Path.Combine(game.InstallDirectory, "Repacks");
+        if (Directory.Exists(repacksDir))
+        {
+            game.InstallDirectory = repacksDir;
+        }
+    }
+
+    var setupExe = Directory.GetFiles(game.InstallDirectory, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
+    if (!string.IsNullOrEmpty(setupExe))
+    {
+        using (var process = new Process())
+        {
+            process.StartInfo.FileName = setupExe;
+            process.StartInfo.WorkingDirectory = game.InstallDirectory;
+            process.StartInfo.UseShellExecute = true;
+            process.Start();
+            process.WaitForExit();
+        }
+
+        // Verify installation by checking "Games" folder
+        if (Directory.Exists(gamesDir))
+        {
+            game.IsInstalled = true;
+            game.InstallDirectory = gamesDir;
+            API.Instance.Database.Games.Update(game);
+
+            // Refresh Playnite database to reflect the installation status
+            API.Instance.MainView.SelectGame(game.Id);
+        }
+        else
+        {
+            game.IsInstalled = false;
+            API.Instance.Dialogs.ShowErrorMessage("Game installation failed or game not found in 'Games' folder.", "Installation Error");
+        }
+    }
+    else
+    {
+        game.InstallDirectory = null;
+        API.Instance.Dialogs.ShowErrorMessage("Setup.exe not found. Installation cancelled.", "Error");
+    }
+}
+    }
+
+    public class LocalInstallController : InstallController
+    {
+        private readonly PC_GAMES_Local pluginInstance;
+
+        public LocalInstallController(Game game, PC_GAMES_Local instance) : base(game)
+        {
+            pluginInstance = instance;
+            Name = "Install using setup.exe";
+        }
+
+        public override void Install(InstallActionArgs args)
+        {
+            pluginInstance.GameInstaller(Game);
+        }
+    }
+
+    public class LocalUninstallController : UninstallController
+    {
+        private readonly string uninstallPath;
+
+        public LocalUninstallController(Game game, string uninstallPath) : base(game)
+        {
+            this.uninstallPath = uninstallPath;
+            Name = "Uninstall using setup.exe";
+        }
+
+        public override void Uninstall(UninstallActionArgs args)
+        {
+            using (var process = new Process())
+            {
+                process.StartInfo.FileName = uninstallPath;
+                process.StartInfo.UseShellExecute = true;
+                process.Start();
+                process.WaitForExit();
+            }
+            Game.IsInstalled = false;
+            API.Instance.Database.Games.Update(Game);
         }
     }
 }
