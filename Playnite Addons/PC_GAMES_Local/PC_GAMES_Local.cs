@@ -166,108 +166,258 @@ namespace PC_GAMES_Local
 
             return relativePath;
         }
+public override IEnumerable<InstallController> GetInstallActions(GetInstallActionsArgs args)
+{
+    if (args.Game.PluginId == Id)
+    {
+        yield return new LocalInstallController(args.Game, this);
+    }
+}
 
-        public override IEnumerable<InstallController> GetInstallActions(GetInstallActionsArgs args)
+public override IEnumerable<UninstallController> GetUninstallActions(GetUninstallActionsArgs args)
+{
+    if (args.Game.PluginId != Id) yield break;
+
+    var uninstallExe = Path.Combine(args.Game.InstallDirectory, "unins000.exe");
+    if (!File.Exists(uninstallExe))
+    {
+        // If no unins000.exe, delete the game folder and mark the game as uninstalled
+        var gameFolder = args.Game.InstallDirectory;
+        if (Directory.Exists(gameFolder))
         {
-            if (args.Game.PluginId == Id)
+            Directory.Delete(gameFolder, true);
+        }
+        var game = API.Instance.Database.Games.Get(args.Game.Id);
+        game.IsInstalled = false;
+        game.GameActions.Clear();
+        API.Instance.Database.Games.Update(game);
+    }
+    else
+    {
+        yield return new LocalUninstallController(args.Game, uninstallExe, this);
+    }
+}
+
+public void GameInstaller(Game game)
+{
+    var setupExe = Directory.GetFiles(game.InstallDirectory, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
+    if (!string.IsNullOrEmpty(setupExe))
+    {
+        using (var process = new Process())
+        {
+            process.StartInfo.FileName = setupExe;
+            process.StartInfo.WorkingDirectory = game.InstallDirectory;
+            process.StartInfo.UseShellExecute = true;
+            process.Start();
+            process.WaitForExit();
+        }
+
+        // Wait and retry to find the newly installed game directory
+        var rootDrive = Path.GetPathRoot(game.InstallDirectory);
+        var gamesFolderPath = Path.Combine(rootDrive, "Games");
+        if (Directory.Exists(gamesFolderPath))
+        {
+            var installedGameDir = Directory.GetDirectories(gamesFolderPath, "*", SearchOption.AllDirectories)
+                .FirstOrDefault(d => Path.GetFileName(d).Equals(game.Name, StringComparison.OrdinalIgnoreCase));
+            
+            if (!string.IsNullOrEmpty(installedGameDir))
             {
-                yield return new LocalInstallController(args.Game, this);
+                game.InstallDirectory = installedGameDir;
+                API.Instance.Database.Games.Update(game);
+
+                // Reload the game's data to ensure the install directory is up-to-date
+                game = API.Instance.Database.Games.Get(game.Id);
             }
         }
 
-        public override IEnumerable<UninstallController> GetUninstallActions(GetUninstallActionsArgs args)
-        {
-            if (args.Game.PluginId != Id) yield break;
+        // Signal that the installation is completed
+        InvokeOnInstalled(new GameInstalledEventArgs(game.Id));
 
-            var uninstallExe = Path.Combine(args.Game.InstallDirectory, "unins000.exe");
-            if (!File.Exists(uninstallExe))
-            {
-                logger.Debug($"No unins000.exe found for {args.Game.Name}, ID: {args.Game.GameId}");
-                PlayniteApi.Dialogs.ShowErrorMessage("No unins000.exe found.", "Uninstall error");
-            }
-            else
-            {
-                yield return new LocalUninstallController(args.Game, uninstallExe);
-            }
+        // Force library update for the specific game
+        var pluginGames = GetGames(new LibraryGetGamesArgs());
+        var updatedGame = pluginGames.FirstOrDefault(g => g.Name.Equals(game.Name, StringComparison.OrdinalIgnoreCase));
+        if (updatedGame != null)
+        {
+            game.InstallDirectory = updatedGame.InstallDirectory;
+            game.GameActions = new System.Collections.ObjectModel.ObservableCollection<GameAction>(updatedGame.GameActions);
+            API.Instance.Database.Games.Update(game);
+        }
+    }
+    else
+    {
+        API.Instance.Dialogs.ShowErrorMessage("Setup.exe not found. Installation cancelled.", "Error");
+    }
+}
+
+public void GameUninstaller(Game game)
+{
+    var uninstallExe = Directory.GetFiles(game.InstallDirectory, "unins000.exe", SearchOption.AllDirectories).FirstOrDefault();
+    if (!string.IsNullOrEmpty(uninstallExe))
+    {
+        using (var process = new Process())
+        {
+            process.StartInfo.FileName = uninstallExe;
+            process.StartInfo.WorkingDirectory = game.InstallDirectory;
+            process.StartInfo.UseShellExecute = true;
+            process.Start();
+            process.WaitForExit();
         }
 
-        public void GameInstaller(Game game)
+        // Ensure "unins000.exe" has stopped running
+        var processName = Path.GetFileNameWithoutExtension(uninstallExe);
+        while (Process.GetProcessesByName(processName).Any())
         {
-            var setupExe = Directory.GetFiles(game.InstallDirectory, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
+            System.Threading.Thread.Sleep(1000);
+        }
+
+        // Check if the game is no longer in the current InstallDirectory
+        while (Directory.Exists(game.InstallDirectory))
+        {
+            System.Threading.Thread.Sleep(1000);
+        }
+
+        // Update the install directory to Repacks if it exists, otherwise set to empty
+        var rootDrive = Path.GetPathRoot(game.InstallDirectory);
+        var repacksFolderPath = Path.Combine(rootDrive, "Repacks");
+        var repacksGameDir = Directory.GetDirectories(repacksFolderPath, "*", SearchOption.AllDirectories)
+            .FirstOrDefault(d => Path.GetFileName(d).Equals(game.Name, StringComparison.OrdinalIgnoreCase));
+        
+        if (!string.IsNullOrEmpty(repacksGameDir))
+        {
+            game.InstallDirectory = repacksGameDir;
+
+            // Set the install button to "setup.exe"
+            var setupExe = Directory.GetFiles(repacksGameDir, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
             if (!string.IsNullOrEmpty(setupExe))
             {
-                using (var process = new Process())
+                game.GameActions = new System.Collections.ObjectModel.ObservableCollection<GameAction>
                 {
-                    process.StartInfo.FileName = setupExe;
-                    process.StartInfo.WorkingDirectory = game.InstallDirectory;
-                    process.StartInfo.UseShellExecute = true;
-                    process.Start();
-                    process.WaitForExit();
-                }
-
-                // Signal that the installation is completed
-                InvokeOnInstalled(new GameInstalledEventArgs(game.Id));
-            }
-            else
-            {
-                API.Instance.Dialogs.ShowErrorMessage("Setup.exe not found. Installation cancelled.", "Error");
+                    new GameAction
+                    {
+                        Name = "Install",
+                        Type = GameActionType.File,
+                        Path = setupExe,
+                        IsPlayAction = true,
+                        WorkingDir = repacksGameDir
+                    }
+                };
             }
         }
-
-        public class LocalInstallController : InstallController
+        else
         {
-            private readonly PC_GAMES_Local pluginInstance;
-
-            public LocalInstallController(Game game, PC_GAMES_Local instance) : base(game)
-            {
-                pluginInstance = instance;
-                Name = "Install using setup.exe";
-            }
-
-            public override void Install(InstallActionArgs args)
-            {
-                pluginInstance.GameInstaller(Game);
-            }
+            game.InstallDirectory = string.Empty;
+            game.GameActions.Clear();
         }
 
-        protected void InvokeOnInstalled(GameInstalledEventArgs args)
+        // Force library update for the specific game
+        var pluginGames = GetGames(new LibraryGetGamesArgs());
+        var updatedGame = pluginGames.FirstOrDefault(g => g.Name.Equals(game.Name, StringComparison.OrdinalIgnoreCase));
+        if (updatedGame != null)
         {
-            // Playnite will handle updating the game's state
-            PlayniteApi.Notifications.Add(new NotificationMessage("InstallCompleted", $"Installation of {API.Instance.Database.Games.Get(args.GameId).Name} is complete!", NotificationType.Info));
+            game.InstallDirectory = updatedGame.InstallDirectory;
+            game.GameActions = new System.Collections.ObjectModel.ObservableCollection<GameAction>(updatedGame.GameActions);
+            API.Instance.Database.Games.Update(game);
         }
 
-        public class LocalUninstallController : UninstallController
-        {
-            private readonly string uninstallPath;
+        game.IsInstalled = false;
+        game.IsInstalling = false;
+        API.Instance.Database.Games.Update(game);
 
-            public LocalUninstallController(Game game, string uninstallPath) : base(game)
-            {
-                this.uninstallPath = uninstallPath;
-                Name = "Uninstall using unins000.exe";
-            }
-
-            public override void Uninstall(UninstallActionArgs args)
-            {
-                using (var process = new Process())
-                {
-                    process.StartInfo.FileName = uninstallPath;
-                    process.StartInfo.UseShellExecute = true;
-                    process.Start();
-                    process.WaitForExit();
-                }
-                Game.IsInstalled = false;
-                API.Instance.Database.Games.Update(Game);
-            }
-        }
+        // Signal that the uninstallation is completed
+        InvokeOnUninstalled(new GameUninstalledEventArgs(game.Id));
     }
-
-    public class GameInstalledEventArgs : EventArgs
+    else
     {
-        public Guid GameId { get; private set; }
-
-        public GameInstalledEventArgs(Guid gameId)
-        {
-            GameId = gameId;
-        }
+        API.Instance.Dialogs.ShowErrorMessage("Unins000.exe not found. Uninstallation cancelled.", "Error");
     }
+}
+
+public class LocalInstallController : InstallController
+{
+    private readonly PC_GAMES_Local pluginInstance;
+
+    public LocalInstallController(Game game, PC_GAMES_Local instance) : base(game)
+    {
+        pluginInstance = instance;
+        Name = "Install using setup.exe";
+    }
+
+    public override void Install(InstallActionArgs args)
+    {
+        pluginInstance.GameInstaller(Game);
+    }
+}
+
+protected void InvokeOnInstalled(GameInstalledEventArgs args)
+{
+    // Update the game's state
+    var game = API.Instance.Database.Games.Get(args.GameId);
+    if (game != null)
+    {
+        game.IsInstalling = false;
+        game.IsInstalled = true;
+        API.Instance.Database.Games.Update(game);
+
+        // Notify Playnite
+        PlayniteApi.Notifications.Add(new NotificationMessage("InstallCompleted", $"Installation of {game.Name} is complete!", NotificationType.Info));
+    }
+}
+
+public class LocalUninstallController : UninstallController
+{
+    private readonly string uninstallPath;
+    private readonly PC_GAMES_Local pluginInstance;
+
+    public LocalUninstallController(Game game, string uninstallPath, PC_GAMES_Local instance) : base(game)
+    {
+        this.uninstallPath = uninstallPath;
+        pluginInstance = instance;
+        Name = "Uninstall using unins000.exe";
+    }
+
+    public override void Uninstall(UninstallActionArgs args)
+    {
+        pluginInstance.GameUninstaller(Game);
+        // Signal that the uninstallation is completed
+        pluginInstance.InvokeOnUninstalled(new GameUninstalledEventArgs(Game.Id));
+    }
+}
+
+protected void InvokeOnUninstalled(GameUninstalledEventArgs args)
+{
+    // Update the game's state after uninstallation
+    var game = API.Instance.Database.Games.Get(args.GameId);
+    if (game != null)
+    {
+        game.IsInstalling = false;
+        game.IsInstalled = false;
+        API.Instance.Database.Games.Update(game);
+
+        // Notify Playnite
+        PlayniteApi.Notifications.Add(new NotificationMessage("UninstallCompleted", $"Uninstallation of {game.Name} is complete!", NotificationType.Info));
+    }
+}
+
+public class GameInstalledEventArgs : EventArgs
+{
+    public Guid GameId { get; private set; }
+
+    public GameInstalledEventArgs(Guid gameId)
+    {
+        GameId = gameId;
+    }
+}
+
+public class GameUninstalledEventArgs : EventArgs
+{
+    public Guid GameId { get; private set; }
+
+    public GameUninstalledEventArgs(Guid gameId)
+    {
+        GameId = gameId;
+    }
+}
+
+}
+
 }
