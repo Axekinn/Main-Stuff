@@ -247,10 +247,11 @@ public void GameInstaller(Game game)
     {
         API.Instance.Dialogs.ShowErrorMessage("Setup.exe not found. Installation cancelled.", "Error");
     }
-}
-
-public void GameUninstaller(Game game)
+}public void GameUninstaller(Game game)
 {
+    // Fetch the latest game data at the beginning of the method
+    game = API.Instance.Database.Games.Get(game.Id);
+    
     var uninstallExe = Directory.GetFiles(game.InstallDirectory, "unins000.exe", SearchOption.AllDirectories).FirstOrDefault();
     if (!string.IsNullOrEmpty(uninstallExe))
     {
@@ -279,10 +280,9 @@ public void GameUninstaller(Game game)
         // Update the install directory to Repacks if it exists, otherwise set to empty
         var rootDrive = Path.GetPathRoot(game.InstallDirectory);
         var repacksFolderPath = Path.Combine(rootDrive, "Repacks");
-        var repacksGameDir = Directory.GetDirectories(repacksFolderPath, "*", SearchOption.AllDirectories)
-            .FirstOrDefault(d => Path.GetFileName(d).Equals(game.Name, StringComparison.OrdinalIgnoreCase));
+        var repacksGameDir = Path.Combine(repacksFolderPath, game.Name);
         
-        if (!string.IsNullOrEmpty(repacksGameDir))
+        if (Directory.Exists(repacksGameDir))
         {
             game.InstallDirectory = repacksGameDir;
 
@@ -307,16 +307,6 @@ public void GameUninstaller(Game game)
         {
             game.InstallDirectory = string.Empty;
             game.GameActions.Clear();
-        }
-
-        // Force library update for the specific game
-        var pluginGames = GetGames(new LibraryGetGamesArgs());
-        var updatedGame = pluginGames.FirstOrDefault(g => g.Name.Equals(game.Name, StringComparison.OrdinalIgnoreCase));
-        if (updatedGame != null)
-        {
-            game.InstallDirectory = updatedGame.InstallDirectory;
-            game.GameActions = new System.Collections.ObjectModel.ObservableCollection<GameAction>(updatedGame.GameActions);
-            API.Instance.Database.Games.Update(game);
         }
 
         game.IsInstalled = false;
