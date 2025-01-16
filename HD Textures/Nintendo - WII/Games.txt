@@ -1,0 +1,3 @@
+# Each line is as followed
+# SerialID: "Game Name" , "URL to Texture pack either .zip|.rar"
+
