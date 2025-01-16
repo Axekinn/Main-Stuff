@@ -55,4 +55,4 @@ Exclusion list
 using the real "Install" & "Uninstall" buttons
 </a>
 
-MAngement "copy" & "Move" to a diffrent drive that has enough storage space 
+Mangement "copy" & "Move" to a diffrent drive that has enough storage space 
