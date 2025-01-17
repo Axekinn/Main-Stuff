@@ -1,0 +1,34 @@
+G:\New\myrient\myrient_3DS\bin\Debug\extension.yaml
+G:\New\myrient\myrient_3DS\bin\Debug\icon.png
+G:\New\myrient\myrient_3DS\bin\Debug\Localization\en_US.xaml
+G:\New\myrient\myrient_3DS\bin\Debug\myrient_3DS.dll
+G:\New\myrient\myrient_3DS\bin\Debug\myrient_3DS.pdb
+G:\New\myrient\myrient_3DS\bin\Debug\Playnite.SDK.dll
+G:\New\myrient\myrient_3DS\bin\Debug\Playnite.SDK.xml
+G:\New\myrient\myrient_3DS\obj\Debug\myrient_3DS.csproj.AssemblyReference.cache
+G:\New\myrient\myrient_3DS\obj\Debug\App.baml
+G:\New\myrient\myrient_3DS\obj\Debug\myrient_3DSSettingsView.baml
+G:\New\myrient\myrient_3DS\obj\Debug\myrient_3DSSettingsView.g.cs
+G:\New\myrient\myrient_3DS\obj\Debug\myrient_3DS_MarkupCompile.cache
+G:\New\myrient\myrient_3DS\obj\Debug\myrient_3DS.g.resources
+G:\New\myrient\myrient_3DS\obj\Debug\myrient_3DS.csproj.CoreCompileInputs.cache
+G:\New\myrient\myrient_3DS\obj\Debug\myrient_.FDF19AFC.Up2Date
+G:\New\myrient\myrient_3DS\obj\Debug\myrient_3DS.dll
+G:\New\myrient\myrient_3DS\obj\Debug\myrient_3DS.pdb
+G:\New\myrient\myrient_3DS - Copy\obj\Debug\myrient_3DS.csproj.AssemblyReference.cache
+G:\New\myrient\myrient_3DS - Copy\obj\Debug\App.baml
+G:\New\myrient\myrient_3DS - Copy\obj\Debug\myrient_3DSSettingsView.baml
+G:\New\myrient\myrient_3DS - Copy\obj\Debug\myrient_3DSSettingsView.g.cs
+G:\New\myrient\myrient_3DS - Copy\obj\Debug\myrient_3DS_MarkupCompile.cache
+G:\New\myrient\myrient_3DS - Copy\obj\Debug\myrient_3DS.g.resources
+G:\New\myrient\myrient_3DS - Copy\obj\Debug\myrient_3DS.csproj.CoreCompileInputs.cache
+G:\New\myrient\myrient_3DS - Copy\bin\Debug\extension.yaml
+G:\New\myrient\myrient_3DS - Copy\bin\Debug\icon.png
+G:\New\myrient\myrient_3DS - Copy\bin\Debug\Localization\en_US.xaml
+G:\New\myrient\myrient_3DS - Copy\bin\Debug\myrient_3DS.dll
+G:\New\myrient\myrient_3DS - Copy\bin\Debug\myrient_3DS.pdb
+G:\New\myrient\myrient_3DS - Copy\bin\Debug\Playnite.SDK.dll
+G:\New\myrient\myrient_3DS - Copy\bin\Debug\Playnite.SDK.xml
+G:\New\myrient\myrient_3DS - Copy\obj\Debug\myrient_.FDF19AFC.Up2Date
+G:\New\myrient\myrient_3DS - Copy\obj\Debug\myrient_3DS.dll
+G:\New\myrient\myrient_3DS - Copy\obj\Debug\myrient_3DS.pdb
