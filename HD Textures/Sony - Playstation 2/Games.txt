@@ -1,3 +1,21 @@
 # Each line is as followed
-# SerialID: "Game Name" , "URL to Texture pack either .zip|.rar"
+# SerialID:
+# Name:  
+# Urls: "URL to Texture pack either .zip|.rar"
+# Author: 
+# Version:
 
+
+# Games:
+
+Serial: SLUS-20926
+Name: "Harry Potter and the Prisoner of Azkaban" 
+Urls: "https://archive.org/download/harry-potter-and-the-prisoner-of-azkaban-upscale-texture-pack/Harry%20Potter%20and%20the%20Prisoner%20of%20Azkaban%20%5BUpscale%20Texture%20Pack%5D.zip"
+Author: "c0rexe"
+Version: "1" 
+
+Serial: "SLES-53702"
+Name: "Resident Evil 4"
+Urls: "https://download2391.mediafire.com/p7dynjn7pxxgcahVt2WWK_9vUlYDETK86zFLB7yMoyx1fw-2HdjtLYQpWKCxy7Xuh-EzaFWpC1iXcHx-g15H4AFfFuSp6fP0CiWZFlnQpQWNLv0dnSO9TaxEqGLK_OkQ-r5Y7vkLr9HYkWB9yulb6N82tGlxnkv8ldSBpOlN4mE/dp2sm4jt7rph19b/R_e.4.HD.textures.v2.3_xXThe.RockoXx.rar"
+Author: "xXtherockoXx"
+Version: "2.3"
