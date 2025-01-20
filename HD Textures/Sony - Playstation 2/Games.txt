@@ -57,7 +57,7 @@ Author: "Koriebonx98"
 Version: "1.0"
 
 Serial: "SLUS-20772"
-Name: "SSX3"
+Name: "SSX 3"
 Urls: "https://archive.org/download/cover_20231010/SSX%203%20%28USA%29%20%5BSLUS-20772%5D%20HD%20Remaster.rar"
 Author: "Archive"
 Version: "1.0"
