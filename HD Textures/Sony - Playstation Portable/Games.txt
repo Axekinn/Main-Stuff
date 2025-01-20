@@ -9,7 +9,7 @@
 # Games:
 
 Serial: ULUS10031
-Name: "The Sims 2" 
+Name: "Sims 2, The" 
 Urls: "https://github.com/Grip-hearttin/The-Sims-2-PSP-HD-Texture-Pack/releases/download/ULUS10031/ULUS10031.zip"
 Author: "Grip-hearttin"
 Version: "0" 
