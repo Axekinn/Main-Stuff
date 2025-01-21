@@ -104,4 +104,9 @@ Urls: "https://archive.org/download/cover_20231010/Kingdom%20Hearts%20II%20%28US
 Author: "Archive"
 Version: "1.0"
 
+Serial: "SLUS-20349"
+Name: "Scooby-Doo! Night of 100 Frights"
+Urls: "https://mega.nz/file/6vZwyaJZ#ho7qo4xwwW54GwTqXCtv44g1zrKRxFd7WUGmGSxd6pc"
+Author: "Koriebonx98"
+Version: "1.0"
 
