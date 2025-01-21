@@ -69,7 +69,7 @@ Author: "Archive"
 Version: "1.0"
 
 Serial: "SLES-50185"
-Name: "Alone in the Dark The New Nightmare"
+Name: "Alone in the Dark - The New Nightmare"
 Urls: "https://archive.org/download/cover_20231010/Alone%20in%20the%20Dark%20The%20New%20Nightmare%20%28Europe%29%20%5BSLES-50185%5D%20HD%20Remaster.rar"
 Author: "Archive"
 Version: "1.0"
