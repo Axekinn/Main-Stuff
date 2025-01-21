@@ -9,12 +9,6 @@
 # Games:
 
 Serial: SLUS-20926
-Name: "WARIO WORLD" 
-Urls: "https://drive.google.com/file/d/1irZDLaBWWoe_XOIPU5_z_RoAdu6nJkbD/view?usp=sharing"
-Author: "calebthegeek"
-Version: "1" 
-
-Serial: SLUS-20926
 Name: "Super Mario Galaxy 2" 
 Urls: "http://www.mediafire.com/folder/1t1kwxpt6leqe/Textures_Super_Mario_Galaxy"
 Author: "CDAMJC"
@@ -27,7 +21,7 @@ Author: "CDAMJC"
 Version: "1" 
 
 Serial: SLUS-20926
-Name: "MArio KArt Wii" 
+Name: "Mario Kart Wii" 
 Urls: "https://evilgames.eu/texture-packs/files/mkwii-reloaded-v0.1.1-png.zip"
 Author: "Admentus"
 Version: "1" 
