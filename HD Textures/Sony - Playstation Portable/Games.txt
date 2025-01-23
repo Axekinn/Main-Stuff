@@ -14,6 +14,12 @@ Urls: "https://github.com/Grip-hearttin/The-Sims-2-PSP-HD-Texture-Pack/releases/
 Author: "Grip-hearttin"
 Version: "0" 
 
+Serial: ULUS10031
+Name: "God of War - Chains of Olympus" 
+Urls: "https://drive.google.com/file/d/1-8-vnH7vqXLxZHg7cXki5X-wkRXvnqZa/view?usp=sharing"
+Author: "verymelon Blender"
+Version: "0" 
+
 Serial: "ULUS10466"
 Name: "Tekken 6"
 Urls: "https://github.com/kharij/Tekken-6-HD-Texture-Pack/archive/refs/tags/v0.3.zip"
