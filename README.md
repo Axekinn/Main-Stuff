@@ -65,7 +65,7 @@ Not Released as of yet as im trying to sort some bugs but addon is 90% ready for
 Info:
 </a>
 
-- Scrapes urls for each platfomr (Option in .config) if more than 1x region it adds aall to game entry, samee for "Addon" or "Dlc" 
+- Scrapes urls for each platfomr (Option in .config) if more than 1x region it adds aall to game entry, same for "Addon" or "Dlc" 
 </a>
 
 - Imports local roms and sets up with certain emus... (In Future will be user choice// Setting in .config to enable or disable this feature)
