@@ -64,21 +64,28 @@ Not Released as of yet as im trying to sort some bugs but addon is 90% ready for
 
 Info:
 </a>
+
 - Scrapes urls for each platfomr (Option in .config) if more than 1x region it adds aall to game entry, samee for "Addon" or "Dlc" 
 </a>
+
 - Imports local roms and sets up with certain emus... (In Future will be user choice// Setting in .config to enable or disable this feature)
 </a>
+
 - HD Texture Packs: uses github .txt file (Cominity to add to this) for matching game in playnite, it then addds action to obtain texture pack, also adds "HD Texture Pack" Feature to games that have them, as list is online via github this will update for everyone, ive been making some simple menu/text sharpness packs for pcsx2 (disclusore, if any copyright infringment... contact me the platform, name of game, author and link and i will be sure to remove, if users keep readding "Banned" links then i will make list Closed source and only add those that are verified as fine.. again if contacted about copyright i will remove)
 </a>
+
 - Nintendo Switch Achivements: As of now it makes a .txt with the switch games in it, and say "True" if w.i.p ach on my github. over time itll then get the .json file and use with success sstory & Ach unlock script (Not all Games will work) also settings to enable/ disable this are in the .config
 </a>
 
 
-</a>
 To come...
 </a>
+
 - Xbox 360 Achivements, when adding xbox 360 games to check success story if game has .json file else obtain via github and force success story to use for xbox 360 games (use efman version to have working xbox 360 games in success story)
 </a>
+
 - ENg Only: This will only get Games if Regions "World" or "USA" else itll look for "En" in the lang section of game name from url.. this should make it easier to get eng only Games
 </a>
+
 - Console Exclusives: This will add a Feature "Exclusive" by reading .txt on github and if game match itll add feature to game, this is nicer to know what was console exclusives, there will be settings for this so like when url scraping can have a setting to only scrape for exclusive games!
+ </a>
