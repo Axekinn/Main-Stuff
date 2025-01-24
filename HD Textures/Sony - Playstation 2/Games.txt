@@ -164,3 +164,8 @@ Urls: "https://mega.nz/file/6vZwyaJZ#ho7qo4xwwW54GwTqXCtv44g1zrKRxFd7WUGmGSxd6pc
 Author: "Koriebonx98"
 Version: "1.0"
 
+Serial: "SLES-54188"
+Name: "Nickelodeon Avatar - The Legend of Aang - The Burning Earth"
+Urls: "https://mega.nz/file/CuohFJjD#D0QKvRMCIP3d7YH7XETfXZN6itlIxhfLvHt_m4Yr6IM"
+Author: "Koriebonx98"
+Version: "1.0"
