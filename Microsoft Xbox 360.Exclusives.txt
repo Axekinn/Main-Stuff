@@ -6,10 +6,10 @@
 
 # A
 
-Ace Combat 6: Fires of Liberation
+Ace Combat 6 - Fires of Liberation
 Adrenalin Misfits
 Aegis Wing
-America's Army: True Soldiers
+America's Army - True Soldiers
 Amped 3
 Apple Jack (video game)
 Assault Heroes 2
@@ -39,7 +39,7 @@ Catan (2007 video game)
 Chessmaster Live
 Chromehounds
 Coffeetime Crosswords
-Comic Jumper: The Adventures of Captain Smiley
+Comic Jumper - The Adventures of Captain Smiley
 Commanders: Attack of the Genos
 The Conveni 200X
 Crackdown (video game)
@@ -63,12 +63,12 @@ Dead or Alive Xtreme 2
 Death By Cube
 Diabolical Pitch
 Diario: Rebirth Moon Legend
-The Dishwasher: Dead Samurai
-Don King Presents: Prizefighter
+The Dishwasher - Dead Samurai
+Don King Presents - Prizefighter
 Doritos Crash Course
 Double D Dodgeball
 Double Fine Happy Action Theater
-Dragon Ball Z: For Kinect
+Dragon Ball Z - For Kinect
 
 # E
 
@@ -82,7 +82,7 @@ Fable Heroes
 Fable II Pub Games
 Fable: The Journey
 Far Cry Instincts: Predator
-FIFA 06: Road to FIFA World Cup
+FIFA 06 - Road to FIFA World Cup
 Fighters Uncaged
 Fire Pro Wrestling (2012 video game)
 Football Genius: The Ultimate Quiz
@@ -106,7 +106,7 @@ Gel: Set & Match
 Geon: Emotions
 Gin Rummy (video game)
 Go! Go! Break Steady
-Golf: Tee It Up!
+Golf - Tee It Up!
 The Gunstringer
 
 # H
@@ -124,7 +124,7 @@ Hybrid (video game)
 The Idolmaster Live For You!
 Import Tuner Challenge
 Indianapolis 500 Evolution
-Infernal: Hell's Vengeance
+Infernal - Hell's Vengeance
 Infinite Undiscovery
 Instant Brain
 Islands of Wakfu
@@ -137,7 +137,7 @@ Joy Ride Turbo
 # K
 
 Kameo
-Kengo: Legend of the 9
+Kengo - Legend of the 9
 Kinect Adventures!
 Kinect Fun Labs
 Kinect Joy Ride
@@ -153,10 +153,10 @@ Konami Classics
 
 Leedmees
 Lips (video game)
-Lips: Canta en Español
-Lips: I Love the 80's
-Lips: Number One Hits
-Lips: Party Classics
+Lips - Canta en Español
+Lips - I Love the 80's
+Lips-  Number One Hits
+Lips - Party Classics
 Lost Cities (video game)
 Lost Odyssey
 Lumines Live!
@@ -167,7 +167,7 @@ MagnaCarta 2
 Meteos Wars
 Mr. Driller Online
 MLB Stickball
-Mobile Ops: The One Year War
+Mobile Ops - The One Year War
 MotionSports
 Motocross Madness (2013 video game)
 MotoGP '06
@@ -177,7 +177,7 @@ Mutant Storm Empire
 
 Naruto: Rise of a Ninja
 Naruto: The Broken Bond
-Naval Assault: The Killing Tide
+Naval Assault - The Killing Tide
 NBA Baller Beats
 Nike+ Kinect Training
 Ninety-Nine Nights
@@ -188,7 +188,7 @@ Novadrome
 # O
 
 Omega Five
-Onechanbara: Bikini Samurai Squad
+Onechanbara - Bikini Samurai Squad
 Operation Darkness
 Otomedius Excellent
 The Outfit (video game)
@@ -196,7 +196,7 @@ Over G Fighters
 
 # P
 
-Panzer General: Allied Assault
+Panzer General - Allied Assault
 Perfect Dark (2010 video game)
 Perfect Dark Zero
 Pinball FX (2007)
@@ -211,7 +211,7 @@ Protect Me Knight
 Race Pro
 Raiden Fighters Aces
 Raskulls
-Raving Rabbids: Alive & Kicking
+Raving Rabbids - Alive & Kicking
 Ridge Racer 6
 Rise of Nightmares
 Rocky and Bullwinkle (video game)
@@ -226,8 +226,8 @@ Schizoid (video game)
 Scrap Metal (video game)
 Screwjumper!
 Self-Defense Training Camp
-Sesame Street: Once Upon a Monster
-Shadow Assault: Tenchu
+Sesame Street - Once Upon a Monster
+Shadow Assault - Tenchu
 Shred Nebula
 Shrek n' Roll
 Small Arms (video game)
@@ -236,13 +236,13 @@ Snops Attack! Zombie Defense
 Soltrio Solitaire
 Sonic Free Riders
 South Park Let's Go Tower Defense Play!
-South Park: Tenorman's Revenge
+South Park - Tenorman's Revenge
 Spectral Force 3
 Speedball 2: Brutal Deluxe (2007 video game)
 'Splosion Man
 SpongeBob SquarePants: Underpants Slam
 Spyglass Board Games
-Steel Battalion: Heavy Armor
+Steel Battalion - Heavy Armor
 Street Trace NYC
 Super Robot Wars XO
 
@@ -264,8 +264,8 @@ Uno Rush
 # V
 
 Vigilante 8 Arcade
-Viva Piñata: Party Animals
-Viva Piñata: Trouble in Paradise
+Viva Piñata - Party Animals
+Viva Piñata - Trouble in Paradise
 
 # W
 
