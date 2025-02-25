@@ -1,0 +1,34 @@
+G:\New\Fitgirl\FitGirlStore\bin\Debug\extension.yaml
+G:\New\Fitgirl\FitGirlStore\bin\Debug\icon.png
+G:\New\Fitgirl\FitGirlStore\bin\Debug\Localization\en_US.xaml
+G:\New\Fitgirl\FitGirlStore\bin\Debug\FitGirlStore.dll
+G:\New\Fitgirl\FitGirlStore\bin\Debug\FitGirlStore.pdb
+G:\New\Fitgirl\FitGirlStore\bin\Debug\Playnite.SDK.dll
+G:\New\Fitgirl\FitGirlStore\bin\Debug\Playnite.SDK.xml
+G:\New\Fitgirl\FitGirlStore\obj\Debug\FitGirlStore.csproj.AssemblyReference.cache
+G:\New\Fitgirl\FitGirlStore\obj\Debug\App.baml
+G:\New\Fitgirl\FitGirlStore\obj\Debug\FitGirlStoreSettingsView.baml
+G:\New\Fitgirl\FitGirlStore\obj\Debug\FitGirlStoreSettingsView.g.cs
+G:\New\Fitgirl\FitGirlStore\obj\Debug\FitGirlStore_MarkupCompile.cache
+G:\New\Fitgirl\FitGirlStore\obj\Debug\FitGirlStore.g.resources
+G:\New\Fitgirl\FitGirlStore\obj\Debug\FitGirlStore.csproj.CoreCompileInputs.cache
+G:\New\Fitgirl\FitGirlStore\obj\Debug\FitGirlS.7FAE67C1.Up2Date
+G:\New\Fitgirl\FitGirlStore\obj\Debug\FitGirlStore.dll
+G:\New\Fitgirl\FitGirlStore\obj\Debug\FitGirlStore.pdb
+G:\New\Fitgirl\FitGirlStore - Copy\bin\Debug\extension.yaml
+G:\New\Fitgirl\FitGirlStore - Copy\bin\Debug\icon.png
+G:\New\Fitgirl\FitGirlStore - Copy\bin\Debug\Localization\en_US.xaml
+G:\New\Fitgirl\FitGirlStore - Copy\bin\Debug\FitGirlStore.dll
+G:\New\Fitgirl\FitGirlStore - Copy\bin\Debug\FitGirlStore.pdb
+G:\New\Fitgirl\FitGirlStore - Copy\bin\Debug\Playnite.SDK.dll
+G:\New\Fitgirl\FitGirlStore - Copy\bin\Debug\Playnite.SDK.xml
+G:\New\Fitgirl\FitGirlStore - Copy\obj\Debug\FitGirlStore.csproj.AssemblyReference.cache
+G:\New\Fitgirl\FitGirlStore - Copy\obj\Debug\App.baml
+G:\New\Fitgirl\FitGirlStore - Copy\obj\Debug\FitGirlStoreSettingsView.baml
+G:\New\Fitgirl\FitGirlStore - Copy\obj\Debug\FitGirlStoreSettingsView.g.cs
+G:\New\Fitgirl\FitGirlStore - Copy\obj\Debug\FitGirlStore_MarkupCompile.cache
+G:\New\Fitgirl\FitGirlStore - Copy\obj\Debug\FitGirlStore.g.resources
+G:\New\Fitgirl\FitGirlStore - Copy\obj\Debug\FitGirlStore.csproj.CoreCompileInputs.cache
+G:\New\Fitgirl\FitGirlStore - Copy\obj\Debug\FitGirlS.7FAE67C1.Up2Date
+G:\New\Fitgirl\FitGirlStore - Copy\obj\Debug\FitGirlStore.dll
+G:\New\Fitgirl\FitGirlStore - Copy\obj\Debug\FitGirlStore.pdb
