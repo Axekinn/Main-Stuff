@@ -498,14 +498,7 @@ namespace FitGirlStore
             }
         }
 
-        public override IEnumerable<UninstallController> GetUninstallActions(GetUninstallActionsArgs args)
-        {
-            if (args.Game.PluginId != Id) yield break;
-
-            yield return new LocalUninstallController(args.Game, this);
-        }
-
-        public void GameInstaller(Game game)
+        public async void GameInstaller(Game game)
         {
             var userDataPath = GetPluginUserDataPath();
             var fdmPath = Path.Combine(userDataPath, "Free Download Manager", "fdm.exe");
@@ -523,45 +516,48 @@ namespace FitGirlStore
             if (!string.IsNullOrEmpty(repackSetupExe))
             {
                 // Run setup.exe if found in Repacks
-                using (var process = new Process())
+                await Task.Run(() =>
                 {
-                    process.StartInfo.FileName = repackSetupExe;
-                    process.StartInfo.WorkingDirectory = game.InstallDirectory;
-                    process.StartInfo.UseShellExecute = true;
-                    process.Start();
-                    process.WaitForExit();
-                }
-
-                // Wait and retry to find the newly installed game directory
-                var rootDrive = Path.GetPathRoot(game.InstallDirectory);
-                var gamesFolderPath = Path.Combine(rootDrive, "Games");
-                if (Directory.Exists(gamesFolderPath))
-                {
-                    var installedGameDir = Directory.GetDirectories(gamesFolderPath, "*", SearchOption.AllDirectories)
-                        .FirstOrDefault(d => Path.GetFileName(d).Equals(game.Name, StringComparison.OrdinalIgnoreCase));
-
-                    if (!string.IsNullOrEmpty(installedGameDir))
+                    using (var process = new Process())
                     {
-                        game.InstallDirectory = installedGameDir;
-                        API.Instance.Database.Games.Update(game);
-
-                        // Reload the game's data to ensure the install directory is up-to-date
-                        game = API.Instance.Database.Games.Get(game.Id);
+                        process.StartInfo.FileName = repackSetupExe;
+                        process.StartInfo.WorkingDirectory = game.InstallDirectory;
+                        process.StartInfo.UseShellExecute = true;
+                        process.Start();
+                        process.WaitForExit();
                     }
-                }
 
-                // Signal that the installation is completed
-                InvokeOnInstalled(new GameInstalledEventArgs(game.Id));
+                    // Wait and retry to find the newly installed game directory
+                    var rootDrive = Path.GetPathRoot(game.InstallDirectory);
+                    var gamesFolderPath = Path.Combine(rootDrive, "Games");
+                    if (Directory.Exists(gamesFolderPath))
+                    {
+                        var installedGameDir = Directory.GetDirectories(gamesFolderPath, "*", SearchOption.AllDirectories)
+                            .FirstOrDefault(d => Path.GetFileName(d).Equals(game.Name, StringComparison.OrdinalIgnoreCase));
 
-                // Force library update for the specific game
-                var pluginGames = GetGames(new LibraryGetGamesArgs());
-                var updatedGame = pluginGames.FirstOrDefault(g => g.Name.Equals(game.Name, StringComparison.OrdinalIgnoreCase));
-                if (updatedGame != null)
-                {
-                    game.InstallDirectory = updatedGame.InstallDirectory;
-                    game.GameActions = new System.Collections.ObjectModel.ObservableCollection<GameAction>(updatedGame.GameActions);
-                    API.Instance.Database.Games.Update(game);
-                }
+                        if (!string.IsNullOrEmpty(installedGameDir))
+                        {
+                            game.InstallDirectory = installedGameDir;
+                            API.Instance.Database.Games.Update(game);
+
+                            // Reload the game's data to ensure the install directory is up-to-date
+                            game = API.Instance.Database.Games.Get(game.Id);
+                        }
+                    }
+
+                    // Signal that the installation is completed
+                    InvokeOnInstalled(new GameInstalledEventArgs(game.Id));
+
+                    // Force library update for the specific game
+                    var pluginGames = GetGames(new LibraryGetGamesArgs());
+                    var updatedGame = pluginGames.FirstOrDefault(g => g.Name.Equals(game.Name, StringComparison.OrdinalIgnoreCase));
+                    if (updatedGame != null)
+                    {
+                        game.InstallDirectory = updatedGame.InstallDirectory;
+                        game.GameActions = new System.Collections.ObjectModel.ObservableCollection<GameAction>(updatedGame.GameActions);
+                        API.Instance.Database.Games.Update(game);
+                    }
+                });
             }
             else
             {
@@ -573,13 +569,87 @@ namespace FitGirlStore
                     var magnetLink = ScrapeMagnetLink(gameDownloadUrl);
                     if (!string.IsNullOrEmpty(magnetLink))
                     {
-                        using (var process = new Process())
+                        // Start Free Download Manager with the magnet link
+                        await Task.Run(() =>
                         {
-                            process.StartInfo.FileName = fdmPath;
-                            process.StartInfo.Arguments = magnetLink;
-                            process.StartInfo.UseShellExecute = true;
-                            process.Start();
-                        }
+                            using (var process = new Process())
+                            {
+                                process.StartInfo.FileName = fdmPath;
+                                process.StartInfo.Arguments = magnetLink;
+                                process.StartInfo.UseShellExecute = true;
+                                process.Start();
+                                process.WaitForExit(); // Wait for FDM to close
+                            }
+
+                            // Check for the downloaded repack after FDM is closed
+                            var repackFolder = @"Y:\Repacks\890B [FitGirl Repack]";
+                            if (!Directory.Exists(repackFolder))
+                            {
+                                API.Instance.Dialogs.ShowErrorMessage($"Repack folder not found: {repackFolder}", "Error");
+                                return;
+                            }
+
+                            // Set the game's install directory to the repack folder
+                            game.InstallDirectory = repackFolder;
+                            API.Instance.Database.Games.Update(game);
+
+                            // Run setup.exe after the download completes
+                            var setupExe = Directory.GetFiles(repackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
+                            if (!string.IsNullOrEmpty(setupExe))
+                            {
+                                using (var setupProcess = new Process())
+                                {
+                                    setupProcess.StartInfo.FileName = setupExe;
+                                    setupProcess.StartInfo.WorkingDirectory = Path.GetDirectoryName(setupExe);
+                                    setupProcess.StartInfo.UseShellExecute = true;
+                                    setupProcess.Start();
+                                    setupProcess.WaitForExit();
+                                }
+
+                                // Wait for QuickSFV.EXE to indicate installation is complete
+                                var quickSFVExe = Path.Combine(repackFolder, "QuickSFV.EXE");
+                                if (File.Exists(quickSFVExe))
+                                {
+                                    using (var quickSFVProcess = new Process())
+                                    {
+                                        quickSFVProcess.StartInfo.FileName = quickSFVExe;
+                                        quickSFVProcess.StartInfo.UseShellExecute = true;
+                                        quickSFVProcess.Start();
+                                        quickSFVProcess.WaitForExit(); // Wait for QuickSFV.EXE to close
+                                    }
+                                }
+
+                                // Wait and retry to find the newly installed game directory
+                                var gamesFolderPath = Path.Combine(Path.GetPathRoot(userDataPath), "Games");
+                                if (Directory.Exists(gamesFolderPath))
+                                {
+                                    var installedGameDir = Directory.GetDirectories(gamesFolderPath, "*", SearchOption.AllDirectories)
+                                        .FirstOrDefault(d => Path.GetFileName(d).Equals(game.Name, StringComparison.OrdinalIgnoreCase));
+
+                                    if (!string.IsNullOrEmpty(installedGameDir))
+                                    {
+                                        game.InstallDirectory = installedGameDir;
+                                        API.Instance.Database.Games.Update(game);
+
+                                        // Reload the game's data to ensure the install directory is up-to-date
+                                        game = API.Instance.Database.Games.Get(game.Id);
+                                    }
+                                }
+
+                                // Signal that the installation is completed
+                                InvokeOnInstalled(new GameInstalledEventArgs(game.Id));
+
+                                // Force library update for the specific game
+                                var pluginGames = GetGames(new LibraryGetGamesArgs());
+                                var updatedGame = pluginGames.FirstOrDefault(g => g.Name.Equals(game.Name, StringComparison.OrdinalIgnoreCase));
+                                if (updatedGame != null)
+                                {
+                                    game.InstallDirectory = updatedGame.InstallDirectory;
+                                    game.GameActions = new System.Collections.ObjectModel.ObservableCollection<GameAction>(updatedGame.GameActions);
+                                    API.Instance.Database.Games.Update(game);
+                                }
+                            }
+                        });
                     }
                     else
                     {
