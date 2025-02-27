@@ -227,183 +227,23 @@ namespace FitGirlStore
             return PlayniteApi.Database.Games.Any(existingGame => existingGame.PluginId == Id && existingGame.Name.Equals(gameMetadata.Name, StringComparison.OrdinalIgnoreCase));
         }
 
+
         public override IEnumerable<GameMetadata> GetGames(LibraryGetGamesArgs args)
         {
             var games = new List<GameMetadata>();
             var scrapedGames = ScrapeSite().GetAwaiter().GetResult();
             logger.Info($"Total repack entries: {scrapedGames.Count}");
 
+            // Add scraped games to the Playnite database
             foreach (var game in scrapedGames)
             {
-                var gameName = game.Name;
+                var gameName = ConvertHyphens(game.Name);
                 var sanitizedGameName = SanitizePath(gameName);
 
-                if (PlayniteApi.Database.Games.Any(existingGame => existingGame.PluginId == Id && existingGame.Name.Equals(ConvertHyphens(gameName), StringComparison.OrdinalIgnoreCase)))
+                if (!PlayniteApi.Database.Games.Any(existingGame => existingGame.PluginId == Id && existingGame.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase)))
                 {
-                    continue;
-                }
-
-                var platformId = PlayniteApi.Database.Platforms.FirstOrDefault(p => p.Name.Equals(game.Platforms.First().ToString(), StringComparison.OrdinalIgnoreCase))?.Id;
-                if (platformId != null)
-                {
-                    var gameMetadata = new GameMetadata()
-                    {
-                        Name = gameName,
-                        GameId = gameName.ToLower(),
-                        Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("PC (Windows)") },
-                        GameActions = new List<GameAction>
-                {
-                    new GameAction
-                    {
-                        Name = "Download: Fitgirl",
-                        Type = GameActionType.URL,
-                        Path = game.GameActions.FirstOrDefault()?.Path,
-                        IsPlayAction = false
-                    }
-                },
-                        IsInstalled = false,
-                        InstallDirectory = null, // Scraped games don't have an install directory
-                        Icon = new MetadataFile(Path.Combine(sanitizedGameName, "icon.png")),
-                        BackgroundImage = new MetadataFile(Path.Combine(sanitizedGameName, "background.png"))
-                    };
-
-                    games.Add(gameMetadata);
-                }
-                else
-                {
-                    logger.Error($"Platform not found for game: {gameName}, Platform: {game.Platforms.First()}");
-                }
-            }
-
-            var drives = DriveInfo.GetDrives().Where(d => d.IsReady && (d.DriveType == DriveType.Fixed || d.DriveType == DriveType.Network));
-            var exclusions = LoadExclusions();
-
-            foreach (var drive in drives)
-            {
-                var gamesFolderPath = Path.Combine(drive.RootDirectory.FullName, "Games");
-                var repacksFolderPath = Path.Combine(drive.RootDirectory.FullName, "Repacks");
-
-                var gameFolders = Directory.Exists(gamesFolderPath) ? Directory.GetDirectories(gamesFolderPath) : Array.Empty<string>();
-                var repackFolders = Directory.Exists(repacksFolderPath) ? Directory.GetDirectories(repacksFolderPath) : Array.Empty<string>();
-                foreach (var folder in gameFolders)
-                {
-                    var folderName = Path.GetFileName(folder);
-                    var gameName = ConvertHyphens(folderName);
-                    gameName = CleanGameName(gameName); // Clean game name to remove unwanted text and characters
-                    var sanitizedGameName = SanitizePath(gameName);
-                    var exeFiles = Directory.GetFiles(folder, "*.exe", SearchOption.AllDirectories)
-                                            .Where(exe => !exclusions.Contains(Path.GetFileName(exe)));
-
-                    var existingGame = PlayniteApi.Database.Games.FirstOrDefault(eg => eg.PluginId == Id && eg.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
-                    if (existingGame != null && !existingGame.IsInstalled)
-                    {
-                        // Update the existing game with install directory and play actions
-                        existingGame.InstallDirectory = folder;
-
-                        if (!existingGame.GameActions.Any(action => action.Type == GameActionType.URL && action.Name == "Download: Fitgirl"))
-                        {
-                            var scrapedGame = games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
-                            if (scrapedGame != null && scrapedGame.GameActions.FirstOrDefault() != null)
-                            {
-                                existingGame.GameActions.Add(new GameAction
-                                {
-                                    Name = "Download: Fitgirl",
-                                    Type = GameActionType.URL,
-                                    Path = scrapedGame.GameActions.FirstOrDefault()?.Path,
-                                    IsPlayAction = false
-                                });
-                            }
-                        }
-
-                        // Add play actions
-                        foreach (var exe in exeFiles.Where(exe => !exe.ToLower().Contains("unins")))
-                        {
-                            existingGame.GameActions.Add(new GameAction()
-                            {
-                                Type = GameActionType.File,
-                                Path = $"{{InstallDir}}\\{GetRelativePath(folder, exe).Replace(folderName, "").TrimStart('\\')}",
-                                Name = Path.GetFileNameWithoutExtension(exe),
-                                IsPlayAction = true,
-                                WorkingDir = "{InstallDir}"
-                            });
-                        }
-                    }
-                    else
-                    {
-                        var gameMetadata = new GameMetadata()
-                        {
-                            Name = gameName,
-                            Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("PC (Windows)") },
-                            GameId = gameName.ToLower(),
-                            GameActions = new List<GameAction>(),
-                            IsInstalled = true,
-                            InstallDirectory = folder,
-                            Icon = new MetadataFile(Path.Combine(folder, "icon.png")),
-                            BackgroundImage = new MetadataFile(Path.Combine(folder, "background.png"))
-                        };
-
-                        // Add play actions
-                        foreach (var exe in exeFiles.Where(exe => !exe.ToLower().Contains("unins")))
-                        {
-                            gameMetadata.GameActions.Add(new GameAction()
-                            {
-                                Type = GameActionType.File,
-                                Path = $"{{InstallDir}}\\{GetRelativePath(folder, exe).Replace(folderName, "").TrimStart('\\')}",
-                                Name = Path.GetFileNameWithoutExtension(exe),
-                                IsPlayAction = true,
-                                WorkingDir = "{InstallDir}"
-                            });
-                        }
-
-                        // Add the FitGirl download button
-                        var scrapedGame = games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
-                        if (scrapedGame != null && scrapedGame.GameActions.FirstOrDefault() != null && !gameMetadata.GameActions.Any(action => action.Name == "Download: Fitgirl"))
-                        {
-                            gameMetadata.GameActions.Add(new GameAction
-                            {
-                                Name = "Download: Fitgirl",
-                                Type = GameActionType.URL,
-                                Path = scrapedGame.GameActions.FirstOrDefault()?.Path,
-                                IsPlayAction = false
-                            });
-                        }
-
-                        games.Add(gameMetadata);
-                    }
-                }
-
-                foreach (var folder in repackFolders)
-                {
-                    var folderName = Path.GetFileName(folder);
-                    var gameName = ConvertHyphens(folderName);
-                    gameName = CleanGameName(gameName); // Clean game name to remove unwanted text and characters
-                    var exeFiles = Directory.GetFiles(folder, "*.exe", SearchOption.AllDirectories)
-                                            .Where(exe => !exclusions.Contains(Path.GetFileName(exe)));
-
-                    var sanitizedGameName = SanitizePath(gameName);
-
-                    var setupExe = exeFiles.FirstOrDefault(exe => exe.ToLower().Contains("setup"));
-
-                    var existingGame = games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
-                    if (existingGame != null)
-                    {
-                        if (!existingGame.IsInstalled)
-                        {
-                            existingGame.InstallDirectory = folder;
-                            existingGame.GameActions.RemoveAll(a => a.IsPlayAction && a.Path.ToLower().Contains("unins"));
-
-                            foreach (var action in existingGame.GameActions.Where(a => a.IsPlayAction))
-                            {
-                                var newPath = exeFiles.FirstOrDefault(exe => Path.GetFileNameWithoutExtension(exe) == action.Name);
-                                if (newPath != null && action.Path != newPath)
-                                {
-                                    action.Path = newPath;
-                                    action.WorkingDir = Path.GetDirectoryName(newPath);
-                                }
-                            }
-                        }
-                    }
-                    else
+                    var platformId = PlayniteApi.Database.Platforms.FirstOrDefault(p => p.Name.Equals(game.Platforms.First().ToString(), StringComparison.OrdinalIgnoreCase))?.Id;
+                    if (platformId != null)
                     {
                         var gameMetadata = new GameMetadata()
                         {
@@ -412,31 +252,158 @@ namespace FitGirlStore
                             Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("PC (Windows)") },
                             GameActions = new List<GameAction>(),
                             IsInstalled = false,
-                            InstallDirectory = folder,
-                            Icon = new MetadataFile(Path.Combine(folder, "icon.png")),
-                            BackgroundImage = new MetadataFile(Path.Combine(folder, "background.png"))
+                            InstallDirectory = null, // Scraped games don't have an install directory
+                            Icon = new MetadataFile(Path.Combine(sanitizedGameName, "icon.png")),
+                            BackgroundImage = new MetadataFile(Path.Combine(sanitizedGameName, "background.png"))
                         };
 
-                        // Add the FitGirl download button
-                        var scrapedGame = games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
-                        if (scrapedGame != null && scrapedGame.GameActions.FirstOrDefault() != null && !gameMetadata.GameActions.Any(action => action.Name == "Download: Fitgirl"))
+                        gameMetadata.GameActions.Add(new GameAction
                         {
-                            gameMetadata.GameActions.Add(new GameAction
+                            Name = "Download: Fitgirl",
+                            Type = GameActionType.URL,
+                            Path = game.GameActions.FirstOrDefault()?.Path,
+                            IsPlayAction = false
+                        });
+
+                        games.Add(gameMetadata);
+                    }
+                    else
+                    {
+                        logger.Error($"Platform not found for game: {gameName}, Platform: {game.Platforms.First()}");
+                    }
+                }
+            }
+
+            var drives = DriveInfo.GetDrives().Where(d => d.IsReady && (d.DriveType == DriveType.Fixed || d.DriveType == DriveType.Network));
+            var exclusions = LoadExclusions();
+            var gameFolders = new List<string>();
+
+            foreach (var drive in drives)
+            {
+                var gamesFolderPath = Path.Combine(drive.RootDirectory.FullName, "Games");
+
+                if (Directory.Exists(gamesFolderPath))
+                {
+                    gameFolders.AddRange(Directory.GetDirectories(gamesFolderPath));
+                }
+            }
+
+            var existingGames = PlayniteApi.Database.Games.Where(g => g.PluginId == Id).ToList();
+
+            // Mark games as uninstalled if not found in the "Games" folder
+            foreach (var existingGame in existingGames)
+            {
+                var folder = gameFolders.FirstOrDefault(f => ConvertHyphens(Path.GetFileName(f)).Equals(existingGame.Name, StringComparison.OrdinalIgnoreCase));
+                if (folder == null)
+                {
+                    existingGame.InstallDirectory = null;
+                    existingGame.IsInstalled = false;
+                    API.Instance.Database.Games.Update(existingGame);
+                    logger.Info($"Marked game as uninstalled: {existingGame.Name}");
+                }
+            }
+
+            // Update existing games and add new games
+            foreach (var folder in gameFolders)
+            {
+                var folderName = Path.GetFileName(folder);
+                var gameName = ConvertHyphens(CleanGameName(folderName));
+                var sanitizedGameName = SanitizePath(gameName);
+                var exeFiles = Directory.GetFiles(folder, "*.exe", SearchOption.AllDirectories)
+                                        .Where(exe => !exclusions.Contains(Path.GetFileName(exe)) &&
+                                                      !Path.GetFileName(exe).ToLower().Contains("setup") &&
+                                                      !Path.GetFileName(exe).ToLower().Contains("unins"));
+
+                logger.Info($"Found {exeFiles.Count()} executable files for game: {gameName} in folder: {folder}");
+                foreach (var exe in exeFiles)
+                {
+                    logger.Info($"Found executable: {exe}");
+                }
+
+                if (!exeFiles.Any())
+                {
+                    logger.Warn($"No valid executable files found for game: {gameName} in folder: {folder}");
+                    continue;
+                }
+
+                var existingGame = existingGames.FirstOrDefault(eg => eg.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
+                if (existingGame != null)
+                {
+                    // Update the existing game with install directory and play actions
+                    existingGame.InstallDirectory = folder;
+                    existingGame.IsInstalled = true;
+                    logger.Info($"Updated install directory for existing game: {gameName} to {folder}");
+
+                    if (!existingGame.GameActions.Any(action => action.Type == GameActionType.URL && action.Name == "Download: Fitgirl"))
+                    {
+                        var scrapedGame = games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
+                        if (scrapedGame != null && scrapedGame.GameActions.FirstOrDefault() != null)
+                        {
+                            existingGame.GameActions.Add(new GameAction
                             {
                                 Name = "Download: Fitgirl",
                                 Type = GameActionType.URL,
                                 Path = scrapedGame.GameActions.FirstOrDefault()?.Path,
                                 IsPlayAction = false
                             });
+                            logger.Info($"Added 'Download: Fitgirl' action to existing game: {gameName}");
                         }
-
-                        games.Add(gameMetadata);
                     }
+
+                    foreach (var exe in exeFiles)
+                    {
+                        if (!existingGame.GameActions.Any(action => action.Path.Equals(exe, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            existingGame.GameActions.Add(new GameAction()
+                            {
+                                Type = GameActionType.File,
+                                Path = exe,
+                                Name = Path.GetFileNameWithoutExtension(exe),
+                                IsPlayAction = true,
+                                WorkingDir = folder
+                            });
+                            logger.Info($"Added play action: {exe} to existing game: {gameName}");
+                        }
+                    }
+
+                    API.Instance.Database.Games.Update(existingGame);
+                    logger.Info($"Updated existing game: {existingGame.Name} with new actions and install directory.");
+                }
+                else
+                {
+                    var gameMetadata = new GameMetadata()
+                    {
+                        Name = gameName,
+                        Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("PC (Windows)") },
+                        GameId = gameName.ToLower(),
+                        GameActions = new List<GameAction>(),
+                        IsInstalled = true,
+                        InstallDirectory = folder,
+                        Icon = new MetadataFile(Path.Combine(folder, "icon.png")),
+                        BackgroundImage = new MetadataFile(Path.Combine(folder, "background.png"))
+                    };
+
+                    foreach (var exe in exeFiles)
+                    {
+                        gameMetadata.GameActions.Add(new GameAction()
+                        {
+                            Type = GameActionType.File,
+                            Path = exe,
+                            Name = Path.GetFileNameWithoutExtension(exe),
+                            IsPlayAction = true,
+                            WorkingDir = folder
+                        });
+                        logger.Info($"Added play action: {exe} to new game: {gameName}");
+                    }
+
+                    games.Add(gameMetadata);
+                    logger.Info($"Added new game: {gameMetadata.Name} with actions and install directory.");
                 }
             }
 
             return games;
         }
+
 
         private string ConvertHyphens(string name)
         {
@@ -498,6 +465,7 @@ namespace FitGirlStore
             }
         }
 
+
         public async void GameInstaller(Game game)
         {
             var userDataPath = GetPluginUserDataPath();
@@ -509,26 +477,51 @@ namespace FitGirlStore
                 return;
             }
 
-            var repackSetupExe = game.InstallDirectory != null
-                ? Directory.GetFiles(game.InstallDirectory, "setup.exe", SearchOption.AllDirectories).FirstOrDefault()
-                : null;
-
-            if (!string.IsNullOrEmpty(repackSetupExe))
+            // Check for existing repacks and set the install directory if found
+            string repackFolder = null;
+            foreach (var drive in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed || d.DriveType == DriveType.Network))
             {
-                // Run setup.exe if found in Repacks
-                await Task.Run(() =>
+                var repacksFolder = Path.Combine(drive.RootDirectory.FullName, "Repacks");
+                if (Directory.Exists(repacksFolder))
                 {
-                    using (var process = new Process())
+                    var potentialRepackFolders = Directory.GetDirectories(repacksFolder, "*", SearchOption.TopDirectoryOnly);
+                    foreach (var potentialRepackFolder in potentialRepackFolders)
                     {
-                        process.StartInfo.FileName = repackSetupExe;
-                        process.StartInfo.WorkingDirectory = game.InstallDirectory;
-                        process.StartInfo.UseShellExecute = true;
-                        process.Start();
-                        process.WaitForExit();
+                        if (Path.GetFileName(potentialRepackFolder).IndexOf(game.Name, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            repackFolder = potentialRepackFolder;
+                            break;
+                        }
                     }
+                }
+                if (!string.IsNullOrEmpty(repackFolder))
+                {
+                    break;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(repackFolder))
+            {
+                var setupExe = Directory.GetFiles(repackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
+                if (!string.IsNullOrEmpty(setupExe))
+                {
+                    game.InstallDirectory = repackFolder;
+                    API.Instance.Database.Games.Update(game);
+
+                    await Task.Run(() =>
+                    {
+                        using (var process = new Process())
+                        {
+                            process.StartInfo.FileName = setupExe;
+                            process.StartInfo.WorkingDirectory = repackFolder;
+                            process.StartInfo.UseShellExecute = true;
+                            process.Start();
+                            process.WaitForExit();
+                        }
+                    });
 
                     // Wait and retry to find the newly installed game directory
-                    var rootDrive = Path.GetPathRoot(game.InstallDirectory);
+                    var rootDrive = Path.GetPathRoot(repackFolder);
                     var gamesFolderPath = Path.Combine(rootDrive, "Games");
                     if (Directory.Exists(gamesFolderPath))
                     {
@@ -545,6 +538,36 @@ namespace FitGirlStore
                         }
                     }
 
+                    // Add all .exe files as actions, excluding those listed in exclusions.txt
+                    var exclusionsPath = Path.Combine(userDataPath, "exclusions.txt");
+                    var exclusions = new HashSet<string>();
+                    if (File.Exists(exclusionsPath))
+                    {
+                        var exclusionLines = File.ReadAllLines(exclusionsPath);
+                        foreach (var line in exclusionLines)
+                        {
+                            exclusions.Add(line.Trim().ToLower());
+                        }
+                    }
+
+                    var exeFiles = Directory.GetFiles(game.InstallDirectory, "*.exe", SearchOption.AllDirectories);
+                    foreach (var exeFile in exeFiles)
+                    {
+                        var exeName = Path.GetFileNameWithoutExtension(exeFile).ToLower();
+                        if (!exclusions.Contains(exeName))
+                        {
+                            var action = new GameAction
+                            {
+                                Name = Path.GetFileNameWithoutExtension(exeFile),
+                                Type = GameActionType.File,
+                                Path = exeFile,
+                                WorkingDir = Path.GetDirectoryName(exeFile)
+                            };
+                            game.GameActions.Add(action);
+                        }
+                    }
+                    API.Instance.Database.Games.Update(game);
+
                     // Signal that the installation is completed
                     InvokeOnInstalled(new GameInstalledEventArgs(game.Id));
 
@@ -557,11 +580,15 @@ namespace FitGirlStore
                         game.GameActions = new System.Collections.ObjectModel.ObservableCollection<GameAction>(updatedGame.GameActions);
                         API.Instance.Database.Games.Update(game);
                     }
-                });
+                }
+                else
+                {
+                    API.Instance.Dialogs.ShowErrorMessage("Setup.exe not found. Installation cancelled.", "Error");
+                }
             }
             else
             {
-                // Run fdm.exe and scrape for magnet link if setup.exe is not found
+                // If repack not found, proceed to download via fdm.exe
                 var downloadAction = game.GameActions.FirstOrDefault(action => action.Name == "Download: Fitgirl" && action.Type == GameActionType.URL);
                 var gameDownloadUrl = downloadAction?.Path;
                 if (!string.IsNullOrEmpty(gameDownloadUrl))
@@ -582,45 +609,54 @@ namespace FitGirlStore
                             }
 
                             // Check for the downloaded repack after FDM is closed
-                            var repackFolder = @"Y:\Repacks\890B [FitGirl Repack]";
-                            if (!Directory.Exists(repackFolder))
+                            string downloadedRepackFolder = null;
+                            foreach (var drive in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed || d.DriveType == DriveType.Network))
                             {
-                                API.Instance.Dialogs.ShowErrorMessage($"Repack folder not found: {repackFolder}", "Error");
+                                var potentialDownloadedRepackFolder = Path.Combine(drive.RootDirectory.FullName, "Repacks");
+                                if (Directory.Exists(potentialDownloadedRepackFolder))
+                                {
+                                    var potentialRepackFolders = Directory.GetDirectories(potentialDownloadedRepackFolder, "*", SearchOption.TopDirectoryOnly);
+                                    foreach (var potentialRepackFolder in potentialRepackFolders)
+                                    {
+                                        if (Path.GetFileName(potentialRepackFolder).IndexOf(game.Name, StringComparison.OrdinalIgnoreCase) >= 0)
+                                        {
+                                            downloadedRepackFolder = potentialRepackFolder;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!string.IsNullOrEmpty(downloadedRepackFolder))
+                                {
+                                    break;
+                                }
+                            }
+
+                            if (string.IsNullOrEmpty(downloadedRepackFolder))
+                            {
+                                API.Instance.Dialogs.ShowErrorMessage("Repack folder not found after download.", "Error");
                                 return;
                             }
 
-                            // Set the game's install directory to the repack folder
-                            game.InstallDirectory = repackFolder;
+                            // Set the game's install directory to the downloaded repack folder
+                            game.InstallDirectory = downloadedRepackFolder;
                             API.Instance.Database.Games.Update(game);
 
                             // Run setup.exe after the download completes
-                            var setupExe = Directory.GetFiles(repackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
+                            var setupExe = Directory.GetFiles(downloadedRepackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
                             if (!string.IsNullOrEmpty(setupExe))
                             {
-                                using (var setupProcess = new Process())
+                                using (var process = new Process())
                                 {
-                                    setupProcess.StartInfo.FileName = setupExe;
-                                    setupProcess.StartInfo.WorkingDirectory = Path.GetDirectoryName(setupExe);
-                                    setupProcess.StartInfo.UseShellExecute = true;
-                                    setupProcess.Start();
-                                    setupProcess.WaitForExit();
-                                }
-
-                                // Wait for QuickSFV.EXE to indicate installation is complete
-                                var quickSFVExe = Path.Combine(repackFolder, "QuickSFV.EXE");
-                                if (File.Exists(quickSFVExe))
-                                {
-                                    using (var quickSFVProcess = new Process())
-                                    {
-                                        quickSFVProcess.StartInfo.FileName = quickSFVExe;
-                                        quickSFVProcess.StartInfo.UseShellExecute = true;
-                                        quickSFVProcess.Start();
-                                        quickSFVProcess.WaitForExit(); // Wait for QuickSFV.EXE to close
-                                    }
+                                    process.StartInfo.FileName = setupExe;
+                                    process.StartInfo.WorkingDirectory = Path.GetDirectoryName(setupExe);
+                                    process.StartInfo.UseShellExecute = true;
+                                    process.Start();
+                                    process.WaitForExit();
                                 }
 
                                 // Wait and retry to find the newly installed game directory
-                                var gamesFolderPath = Path.Combine(Path.GetPathRoot(userDataPath), "Games");
+                                var rootDrive = Path.GetPathRoot(downloadedRepackFolder);
+                                var gamesFolderPath = Path.Combine(rootDrive, "Games");
                                 if (Directory.Exists(gamesFolderPath))
                                 {
                                     var installedGameDir = Directory.GetDirectories(gamesFolderPath, "*", SearchOption.AllDirectories)
@@ -635,6 +671,36 @@ namespace FitGirlStore
                                         game = API.Instance.Database.Games.Get(game.Id);
                                     }
                                 }
+
+                                // Add all .exe files as actions, excluding those listed in exclusions.txt
+                                var exclusionsPath = Path.Combine(userDataPath, "exclusions.txt");
+                                var exclusions = new HashSet<string>();
+                                if (File.Exists(exclusionsPath))
+                                {
+                                    var exclusionLines = File.ReadAllLines(exclusionsPath);
+                                    foreach (var line in exclusionLines)
+                                    {
+                                        exclusions.Add(line.Trim().ToLower());
+                                    }
+                                }
+
+                                var exeFiles = Directory.GetFiles(game.InstallDirectory, "*.exe", SearchOption.AllDirectories);
+                                foreach (var exeFile in exeFiles)
+                                {
+                                    var exeName = Path.GetFileNameWithoutExtension(exeFile).ToLower();
+                                    if (!exclusions.Contains(exeName))
+                                    {
+                                        var action = new GameAction
+                                        {
+                                            Name = Path.GetFileNameWithoutExtension(exeFile),
+                                            Type = GameActionType.File,
+                                            Path = exeFile,
+                                            WorkingDir = Path.GetDirectoryName(exeFile)
+                                        };
+                                        game.GameActions.Add(action);
+                                    }
+                                }
+                                API.Instance.Database.Games.Update(game);
 
                                 // Signal that the installation is completed
                                 InvokeOnInstalled(new GameInstalledEventArgs(game.Id));
