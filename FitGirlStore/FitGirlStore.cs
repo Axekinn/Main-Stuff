@@ -789,6 +789,9 @@ namespace FitGirlStore
 
         private string FindRepackFolder(string gameName)
         {
+            // Convert colons to hyphens in the game name to match the repack folder format
+            string convertedGameName = gameName.Replace(":", " -");
+
             foreach (var drive in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed || d.DriveType == DriveType.Network))
             {
                 var repacksFolder = Path.Combine(drive.RootDirectory.FullName, "Repacks");
@@ -799,7 +802,10 @@ namespace FitGirlStore
                     {
                         var folderName = Path.GetFileName(potentialRepackFolder);
                         var normalizedFolderName = NormalizeName(folderName);
-                        var normalizedGameName = NormalizeName(gameName);
+                        var normalizedGameName = NormalizeName(convertedGameName);
+
+                        // Log the folder and game names being compared
+                        logger.Info($"Comparing normalized folder name '{normalizedFolderName}' with normalized game name '{normalizedGameName}'");
 
                         if (string.Equals(normalizedFolderName, normalizedGameName, StringComparison.OrdinalIgnoreCase))
                         {
@@ -815,7 +821,7 @@ namespace FitGirlStore
         {
             var normalized = Regex.Replace(name, @"\[.*?\]", "").Trim();
             normalized = Regex.Replace(normalized, @"\(.+?\)", "").Trim();
-            normalized = Regex.Replace(normalized, @"[^\w\s]", "").Trim();
+            normalized = Regex.Replace(normalized, @"[^\w\s-]", "").Trim(); // Allow hyphens
             return normalized;
         }
 
@@ -913,93 +919,6 @@ namespace FitGirlStore
                 game.GameActions = new System.Collections.ObjectModel.ObservableCollection<GameAction>(updatedGame.GameActions);
                 API.Instance.Database.Games.Update(game);
             }
-        }
-
-        public void GameUninstaller(Game game)
-        {
-            // Fetch the latest game data at the beginning of the method
-            game = API.Instance.Database.Games.Get(game.Id);
-
-            var uninstallExe = Directory.GetFiles(game.InstallDirectory, "unins000.exe", SearchOption.AllDirectories).FirstOrDefault();
-            if (!string.IsNullOrEmpty(uninstallExe))
-            {
-                using (var process = new Process())
-                {
-                    process.StartInfo.FileName = uninstallExe;
-                    process.StartInfo.WorkingDirectory = game.InstallDirectory;
-                    process.StartInfo.UseShellExecute = true;
-                    process.Start();
-                    process.WaitForExit();
-                }
-
-                // Ensure "unins000.exe" has stopped running
-                var processName = Path.GetFileNameWithoutExtension(uninstallExe);
-                while (Process.GetProcessesByName(processName).Any())
-                {
-                    System.Threading.Thread.Sleep(1000);
-                }
-
-                // Check if the game is no longer in the current InstallDirectory
-                while (Directory.Exists(game.InstallDirectory))
-                {
-                    System.Threading.Thread.Sleep(1000);
-                }
-            }
-            else
-            {
-                if (Directory.Exists(game.InstallDirectory))
-                {
-                    Directory.Delete(game.InstallDirectory, true);
-                }
-
-                // Check if the game is no longer in the current InstallDirectory
-                while (Directory.Exists(game.InstallDirectory))
-                {
-                    System.Threading.Thread.Sleep(1000);
-                }
-            }
-
-            // Update the install directory to Repacks if it exists, otherwise set to empty
-            var rootDrive = Path.GetPathRoot(game.InstallDirectory);
-            var repacksFolderPath = Path.Combine(rootDrive, "Repacks");
-            var repacksGameDir = Path.Combine(repacksFolderPath, game.Name);
-
-            if (Directory.Exists(repacksGameDir))
-            {
-                game.InstallDirectory = repacksGameDir;
-
-                var setupExe = Directory.GetFiles(repacksGameDir, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
-                if (!string.IsNullOrEmpty(setupExe))
-                {
-                    game.GameActions = new System.Collections.ObjectModel.ObservableCollection<GameAction>
-            {
-                new GameAction
-                {
-                    Name = "Install",
-                    Type = GameActionType.File,
-                    Path = setupExe,
-                    IsPlayAction = true,
-                    WorkingDir = repacksGameDir
-                }
-            };
-                }
-                else
-                {
-                    game.GameActions.Clear();
-                }
-            }
-            else
-            {
-                game.InstallDirectory = string.Empty;
-                game.GameActions.Clear();
-            }
-
-            game.IsInstalled = false;
-            game.IsInstalling = false;
-            API.Instance.Database.Games.Update(game);
-
-            // Signal that the uninstallation is completed
-            InvokeOnUninstalled(new GameUninstalledEventArgs(game.Id));
         }
 
 
