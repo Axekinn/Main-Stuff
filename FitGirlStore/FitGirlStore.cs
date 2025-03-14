@@ -26,17 +26,6 @@ namespace FitGirlStore
             Properties = new LibraryPluginProperties { HasSettings = false };
         }
 
-        private void LogGameInfo(string gameName, string version)
-        {
-            using (StreamWriter writer = new StreamWriter(logFilePath, true))
-            {
-                writer.WriteLine($"Name on Site: {gameName}");
-                writer.WriteLine($"Version: {version}");
-                writer.WriteLine();
-            }
-        }
-
-
         private async Task<List<GameMetadata>> ScrapeSite()
         {
             var gameEntries = new List<GameMetadata>();
@@ -95,11 +84,24 @@ namespace FitGirlStore
                         };
 
                         LogGameInfo(cleanName, version);
-                        LogPlayniteGameInfo(gameMetadata.Name, gameMetadata.Version);
 
-                        if (!IsDuplicate(gameMetadata))
+                        var existingGame = PlayniteApi.Database.Games.FirstOrDefault(g => g.Name.Equals(cleanName, StringComparison.OrdinalIgnoreCase));
+                        if (existingGame != null)
                         {
-                            gameEntries.Add(gameMetadata);
+                            LogPlayniteGameInfo(existingGame.Name, existingGame.Version);
+                            if (IsNewerVersion(existingGame.Version, version))
+                            {
+                                AddUpdateReadyFeature(existingGame);
+                                LogUpdateReadyAdded();
+                            }
+                        }
+                        else
+                        {
+                            LogPlayniteGameInfo(cleanName, "Not in Playnite");
+                            if (!IsDuplicate(gameMetadata))
+                            {
+                                gameEntries.Add(gameMetadata);
+                            }
                         }
                     }
                 }
@@ -107,6 +109,86 @@ namespace FitGirlStore
 
             return gameEntries;
         }
+
+        private bool IsDuplicate(GameMetadata gameMetadata)
+        {
+            // Use the original name for comparison
+            return PlayniteApi.Database.Games.Any(existingGame => existingGame.PluginId == Id && existingGame.Name.Equals(gameMetadata.Name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private bool IsNewerVersion(string existingVersion, string newVersion)
+        {
+            if (string.IsNullOrEmpty(existingVersion) || string.IsNullOrEmpty(newVersion))
+                return false;
+
+            var existingVersionParts = existingVersion.Split(new[] { ' ', 'v', 'V', '.' }, StringSplitOptions.RemoveEmptyEntries);
+            var newVersionParts = newVersion.Split(new[] { ' ', 'v', 'V', '.' }, StringSplitOptions.RemoveEmptyEntries);
+
+            for (int i = 0; i < Math.Min(existingVersionParts.Length, newVersionParts.Length); i++)
+            {
+                if (int.TryParse(existingVersionParts[i], out int existingVersionPart) && int.TryParse(newVersionParts[i], out int newVersionPart))
+                {
+                    if (newVersionPart > existingVersionPart)
+                        return true;
+                    if (newVersionPart < existingVersionPart)
+                        return false;
+                }
+            }
+
+            return newVersionParts.Length > existingVersionParts.Length;
+        }
+
+        private void AddUpdateReadyFeature(Game existingGame)
+        {
+            var updateReadyFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("Update Ready", StringComparison.OrdinalIgnoreCase));
+            if (updateReadyFeature == null)
+            {
+                updateReadyFeature = new GameFeature("Update Ready");
+                PlayniteApi.Database.Features.Add(updateReadyFeature);
+                PlayniteApi.Database.Features.Update(updateReadyFeature);
+            }
+
+            if (existingGame.FeatureIds == null)
+            {
+                existingGame.FeatureIds = new List<Guid>();
+            }
+
+            if (!existingGame.FeatureIds.Contains(updateReadyFeature.Id))
+            {
+                existingGame.FeatureIds.Add(updateReadyFeature.Id);
+                PlayniteApi.Database.Games.Update(existingGame);
+                LogUpdateReadyAdded();
+            }
+        }
+
+        private void LogGameInfo(string gameName, string version)
+        {
+            using (StreamWriter writer = new StreamWriter(logFilePath, true))
+            {
+                writer.WriteLine($"Name on Site: {gameName}");
+                writer.WriteLine($"Version: {version}");
+            }
+        }
+
+        private void LogPlayniteGameInfo(string gameName, string version)
+        {
+            using (StreamWriter writer = new StreamWriter(logFilePath, true))
+            {
+                writer.WriteLine($"Playnite Name: {gameName}");
+                writer.WriteLine($"Version: {version}");
+                writer.WriteLine();
+            }
+        }
+
+        private void LogUpdateReadyAdded()
+        {
+            using (StreamWriter writer = new StreamWriter(logFilePath, true))
+            {
+                writer.WriteLine("[Update Ready] Added");
+                writer.WriteLine();
+            }
+        }
+
 
         private async Task<int> GetLatestPageNumber()
         {
@@ -185,31 +267,35 @@ namespace FitGirlStore
         private bool IsValidGameLink(string href)
         {
             var nonGameUrls = new List<string>
-            {
-                "https://fitgirl-repacks.site/",
-                "about:blank#search-container",
-                "about:blank#content",
-                "https://fitgirl-repacks.site/pop-repacks/",
-                "https://fitgirl-repacks.site/popular-repacks/",
-                "https://fitgirl-repacks.site/popular-repacks-of-the-year/",
-                "https://fitgirl-repacks.site/all-playstation-3-emulated-repacks-a-z/",
-                "https://fitgirl-repacks.site/all-switch-emulated-repacks-a-z/",
-                "https://fitgirl-repacks.site/category/updates-digest/",
-                "https://fitgirl-repacks.site/feed/",
-                "http://fitgirl-repacks.site/feed/",
-                "https://fitgirl-repacks.site/donations/",
-                "http://fitgirl-repacks.site/donations/",
-                "https://fitgirl-repacks.site/faq/",
-                "https://fitgirl-repacks.site/contacts/",
-                "https://fitgirl-repacks.site/repacks-troubleshooting/",
-                "https://fitgirl-repacks.site/updates-list/",
-                "https://fitgirl-repacks.site/all-my-repacks-a-z/",
-                "https://fitgirl-repacks.site/games-with-my-personal-pink-paw-award/",
-                "https://wordpress.org/"
-            };
+    {
+        "https://fitgirl-repacks.site/",
+        "about:blank#search-container",
+        "about:blank#content",
+        "https://fitgirl-repacks.site/pop-repacks/",
+        "https://fitgirl-repacks.site/popular-repacks/",
+        "https://fitgirl-repacks.site/popular-repacks-of-the-year/",
+        "https://fitgirl-repacks.site/all-playstation-3-emulated-repacks-a-z/",
+        "https://fitgirl-repacks.site/all-switch-emulated-repacks-a-z/",
+        "https://fitgirl-repacks.site/category/updates-digest/",
+        "https://fitgirl-repacks.site/feed/",
+        "http://fitgirl-repacks.site/feed/",
+        "https://fitgirl-repacks.site/donations/",
+        "http://fitgirl-repacks.site/donations/",
+        "https://fitgirl-repacks.site/faq/",
+        "https://fitgirl-repacks.site/contacts/",
+        "https://fitgirl-repacks.site/repacks-troubleshooting/",
+        "https://fitgirl-repacks.site/updates-list/",
+        "https://fitgirl-repacks.site/all-my-repacks-a-z/",
+        "https://fitgirl-repacks.site/games-with-my-personal-pink-paw-award/",
+        "https://wordpress.org/",
+        "https://fitgirl-repacks.site/all-my-repacks-a-z/#comment",
+        "http://www.hairstylesvip.com"
+    };
 
             if (Regex.IsMatch(href, @"^https://fitgirl-repacks.site/\d{4}/\d{2}/$") ||
                 Regex.IsMatch(href, @"^https://fitgirl-repacks.site/all-my-repacks-a-z/\?lcp_page0=\d+#lcp_instance_0$") ||
+                href.Contains("#comment-") ||
+                href.Contains("https://www.hairstylesvip.com/") ||
                 nonGameUrls.Contains(href))
             {
                 return false;
@@ -217,13 +303,7 @@ namespace FitGirlStore
 
             return true;
         }
-
-        private bool IsDuplicate(GameMetadata gameMetadata)
-        {
-            // Use the original name for comparison
-            return PlayniteApi.Database.Games.Any(existingGame => existingGame.PluginId == Id && existingGame.Name.Equals(gameMetadata.Name, StringComparison.OrdinalIgnoreCase));
-        }
-
+               
         public override IEnumerable<GameMetadata> GetGames(LibraryGetGamesArgs args)
         {
             var games = new List<GameMetadata>();
@@ -476,25 +556,13 @@ namespace FitGirlStore
             return games;
         }
 
-
-
         private string ExtractVersionNumber(string name)
         {
             var versionPattern = @"(v[\d\.]+(?:\s*\(.*?\))?|Build \d+)";
             var match = Regex.Match(name, versionPattern);
             return match.Success ? match.Value : string.Empty;
         }
-
-        private void LogPlayniteGameInfo(string gameName, string version)
-        {
-            using (StreamWriter writer = new StreamWriter(logFilePath, true))
-            {
-                writer.WriteLine($"Playnite Name: {gameName}");
-                writer.WriteLine($"Version: {version}");
-                writer.WriteLine();
-            }
-        }
-
+                
         private string ConvertHyphenToColon(string name)
         {
             var parts = name.Split(new[] { " - " }, 2, StringSplitOptions.None);
