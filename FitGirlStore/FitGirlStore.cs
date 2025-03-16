@@ -66,6 +66,19 @@ namespace FitGirlStore
 
                         uniqueGames.Add(gameKey);
 
+                        // Check for local version file in Games and Repacks folders
+                        string localVersion = GetLocalVersion(cleanName);
+                        bool isUpdateReady = false;
+
+                        if (!string.IsNullOrEmpty(localVersion))
+                        {
+                            if (IsNewerVersion(version, localVersion))
+                            {
+                                isUpdateReady = true;
+                            }
+                            version = localVersion;
+                        }
+
                         var gameMetadata = new GameMetadata
                         {
                             Name = cleanName,
@@ -107,11 +120,44 @@ namespace FitGirlStore
                                 gameEntries.Add(gameMetadata);
                             }
                         }
+
+                        if (isUpdateReady && existingGame != null)
+                        {
+                            AddUpdateReadyFeature(cleanName, version);
+                        }
                     }
                 }
             }
 
             return gameEntries;
+        }
+
+        private string GetLocalVersion(string gameName)
+        {
+            // Sanitize the game name to remove illegal characters
+            string sanitizedGameName = SanitizeGameName(gameName);
+
+            // Check in both "Games" and "Repacks" folders across all drives
+            string[] searchFolders = { "Games", "Repacks" };
+            foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady && (d.DriveType == DriveType.Fixed || d.DriveType == DriveType.Network || d.DriveType == DriveType.Removable)))
+            {
+                foreach (var folderName in searchFolders)
+                {
+                    string folderPath = Path.Combine(drive.RootDirectory.FullName, folderName, $"{sanitizedGameName} [Repack]");
+                    if (Directory.Exists(folderPath))
+                    {
+                        var versionFiles = Directory.GetFiles(folderPath, "*.txt")
+                                                    .Where(file => Regex.IsMatch(Path.GetFileNameWithoutExtension(file), @"^v\d+(\.\d+)*$"));
+                        if (versionFiles.Any())
+                        {
+                            // Use the first version file found
+                            return Path.GetFileNameWithoutExtension(versionFiles.First());
+                        }
+                    }
+                }
+            }
+
+            return string.Empty;
         }
 
         private void AddFeatures(Game game, string name)
@@ -276,6 +322,17 @@ namespace FitGirlStore
                 existingGame.FeatureIds.Add(updateReadyFeature.Id);
                 PlayniteApi.Database.Games.Update(existingGame);
                 LogUpdateReadyAdded();
+            }
+        }
+
+        private void AddUpdateReadyFeature(string gameName, string version)
+        {
+            var existingGame = PlayniteApi.Database.Games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
+            if (existingGame != null)
+            {
+                AddUpdateReadyFeature(existingGame);
+                existingGame.Version = version;
+                PlayniteApi.Database.Games.Update(existingGame);
             }
         }
 
@@ -538,7 +595,8 @@ namespace FitGirlStore
                                     existingGame.GameActions.Add(fitgirlAction);
                                 }
 
-                                var versionFiles = Directory.GetFiles(folder, "*.txt");
+                                var versionFiles = Directory.GetFiles(folder, "*.txt")
+                                                            .Where(file => Regex.IsMatch(Path.GetFileNameWithoutExtension(file), @"^v\d+(\.\d+)*$"));
                                 if (versionFiles.Any())
                                 {
                                     var localVersion = Path.GetFileNameWithoutExtension(versionFiles.First());
@@ -618,7 +676,8 @@ namespace FitGirlStore
                         var folderName = Path.GetFileName(folder);
                         var gameName = ConvertHyphenToColon(CleanGameName(SanitizePath(folderName)));
                         var existingGame = PlayniteApi.Database.Games.FirstOrDefault(g => g.PluginId == Id && g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
-                        var versionFiles = Directory.GetFiles(folder, "*.txt");
+                        var versionFiles = Directory.GetFiles(folder, "*.txt")
+                                                    .Where(file => Regex.IsMatch(Path.GetFileNameWithoutExtension(file), @"^v\d+(\.\d+)*$"));
 
                         if (existingGame != null)
                         {
@@ -730,7 +789,8 @@ namespace FitGirlStore
                         var folderName = Path.GetFileName(folder);
                         var gameName = ConvertHyphenToColon(CleanGameName(SanitizePath(folderName)));
                         var existingGame = PlayniteApi.Database.Games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
-                        var versionFiles = Directory.GetFiles(folder, "*.txt");
+                        var versionFiles = Directory.GetFiles(folder, "*.txt")
+                                                    .Where(file => Regex.IsMatch(Path.GetFileNameWithoutExtension(file), @"^v\d+(\.\d+)*$"));
 
                         if (existingGame != null)
                         {
@@ -860,6 +920,12 @@ namespace FitGirlStore
 
 
 
+        }
+
+        private string SanitizeGameName(string gameName)
+        {
+            // Remove or replace illegal characters
+            return string.Concat(gameName.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
         }
 
         public override IEnumerable<InstallController> GetInstallActions(GetInstallActionsArgs args)
