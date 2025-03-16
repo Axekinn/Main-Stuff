@@ -4,6 +4,7 @@ using Playnite.SDK.Plugins;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Eventing.Reader;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -94,10 +95,13 @@ namespace FitGirlStore
                                 AddUpdateReadyFeature(existingGame);
                                 LogUpdateReadyAdded();
                             }
+
+                            AddFeatures(existingGame, text);
                         }
                         else
                         {
                             LogPlayniteGameInfo(cleanName, "Not in Playnite");
+
                             if (!IsDuplicate(gameMetadata))
                             {
                                 gameEntries.Add(gameMetadata);
@@ -108,6 +112,120 @@ namespace FitGirlStore
             }
 
             return gameEntries;
+        }
+
+        private void AddFeatures(Game game, string name)
+        {
+            var featuresToAdd = new List<string>();
+
+            // Check for various patterns indicating the presence of DLCs
+            var dlcPatterns = new string[]
+            {
+        "+ DLC", "+ dlcs", "+ DLC's", "+ dlc", "+ dlcs", "+ dlc's", "+ DLC'S"
+            };
+
+            bool dlcFound = dlcPatterns.Any(pattern => name.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            // Check for pattern "+ x DLC" where x is any number
+            var dlcRegex = new Regex(@"\+\s*\d+\s*DLC", RegexOptions.IgnoreCase);
+            if (dlcFound || dlcRegex.IsMatch(name))
+            {
+                featuresToAdd.Add("+ DLC");
+            }
+
+            // Check for Update patterns
+            var updatePatterns = new string[]
+            {
+        "+ Update", "+ update", "+ UPDATE"
+            };
+
+            bool updateFound = updatePatterns.Any(pattern => name.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            // Check for pattern "+ x Update" or "+ Update x"
+            var updateRegex = new Regex(@"\+\s*(\d+\s*Update|Update\s*\d+)", RegexOptions.IgnoreCase);
+            if (updateFound || updateRegex.IsMatch(name))
+            {
+                featuresToAdd.Add("+ Update");
+            }
+
+            // Check for Fix patterns
+            var fixPatterns = new string[]
+            {
+        "+ Fix", "+ fix", "+ FIX", "+ HotFix", "+ hotfix", "+ HOTFIX", "+ Windows 7 Fix", "+ windows 7 fix", "+ WINDOWS 7 FIX",
+        "+ Controller Fix", "+ controller fix", "+ CONTROLLER FIX", "+ CrashFix", "+ crashfix", "+ CRASHFIX", "+ Videos Fix"
+            };
+
+            bool fixFound = fixPatterns.Any(pattern => name.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            // Check for pattern "+ HotFix #x" or similar
+            var fixRegex = new Regex(@"\+\s*(HotFix\s*#?\d+|CrashFix|Controller Fix|Windows 7 Fix)", RegexOptions.IgnoreCase);
+            if (fixFound || fixRegex.IsMatch(name))
+            {
+                featuresToAdd.Add("+ Fix");
+            }
+
+            // Check for Soundtrack patterns
+            var soundtrackPatterns = new string[]
+            {
+        "+ Bonus Soundtrack", "+ Bonus OST", "+ Original Soundtrack Bundle", "- Game & Soundtrack Bundle",
+        "+ Soundtrack Edition", "+ Soundtrack Bundle", "- Game & OST"
+            };
+
+            bool soundtrackFound = soundtrackPatterns.Any(pattern => name.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0);
+            if (soundtrackFound)
+            {
+                featuresToAdd.Add("+ Soundtrack");
+            }
+
+            // Check for Online patterns
+            var onlinePatterns = new string[]
+            {
+        "+ Online", "- Online", "+ Online Multiplayer", "+ Online CO-OP"
+            };
+
+            bool onlineFound = onlinePatterns.Any(pattern => name.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0);
+            if (onlineFound)
+            {
+                featuresToAdd.Add("+ Online");
+                if (name.IndexOf("+ Online Multiplayer", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    featuresToAdd.Add("+ Multiplayer");
+                }
+            }
+
+            // Check for Local/Online Multiplayer
+            if (name.IndexOf("+ Local/Online Multiplayer", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                featuresToAdd.Add("+ Local Multiplayer");
+                featuresToAdd.Add("+ Online");
+            }
+
+            if (name.IndexOf("+ Multiplayer", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                featuresToAdd.Add("+ Multiplayer");
+            }
+
+            // Ensure the feature exists in the Playnite library and add it to the game
+            foreach (var featureName in featuresToAdd)
+            {
+                var feature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals(featureName, StringComparison.OrdinalIgnoreCase));
+                if (feature == null)
+                {
+                    feature = new GameFeature(featureName);
+                    PlayniteApi.Database.Features.Add(feature);
+                }
+
+                if (game.FeatureIds == null)
+                {
+                    game.FeatureIds = new List<Guid>();
+                }
+
+                if (!game.FeatureIds.Contains(feature.Id))
+                {
+                    game.FeatureIds.Add(feature.Id);
+                    PlayniteApi.Database.Games.Update(game);
+                }
+            }
         }
 
         private bool IsDuplicate(GameMetadata gameMetadata)
@@ -188,9 +306,7 @@ namespace FitGirlStore
                 writer.WriteLine();
             }
         }
-
-        
-
+                
         private void AddInstallReadyFeature(Game existingGame)
         {
             var installReadyFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Install Ready]", StringComparison.OrdinalIgnoreCase));
@@ -298,19 +414,28 @@ namespace FitGirlStore
             cleanName = cleanName.Replace("&#8220;", "\""); // Fix the opening quotation mark
             cleanName = cleanName.Replace("&#8221;", "\""); // Fix the closing quotation mark
 
-            // Remove specific phrases
+            // Remove specific phrases and patterns
             var phrasesToRemove = new string[]
             {
         "Windows 7 Fix", "Bonus Soundtrack", "Bonus OST", "Ultimate Fishing Bundle",
         "Digital Deluxe Edition", "Bonus Content", "Bonus", "Soundtrack",
-        "2 DLCs", "2 DLC", "All DLCs", "HotFix", "HotFix 1", "Multiplayer" , "DLCs", "+ DLCs"
+        "All DLCs", "HotFix", "HotFix 1", "Multiplayer", "DLCs", "+ DLCs",
+        "+ DLC", "+ Update", "+ Fix", "+ Soundtrack", "+ Online",
+        "+ Local Multiplayer", "- Online", "+ Online Multiplayer", "+ Online CO-OP",
+        "+ Local/Online Multiplayer", "+ Update", "+ DLC + Multiplayer"
             };
 
             foreach (var phrase in phrasesToRemove)
             {
-                cleanName = Regex.Replace(cleanName, $@"\s*\+\s*{Regex.Escape(phrase)}", "", RegexOptions.IgnoreCase);
-                cleanName = Regex.Replace(cleanName, $@"- {Regex.Escape(phrase)}", "", RegexOptions.IgnoreCase);
+                cleanName = Regex.Replace(cleanName, $@"(\s*\+\s*|\s*-\s*){Regex.Escape(phrase)}\s*\d*", "", RegexOptions.IgnoreCase);
             }
+
+            // Remove patterns like "+ x DLC", "+ x Update"
+            cleanName = Regex.Replace(cleanName, @"\+\s*\d+\s*DLC", "", RegexOptions.IgnoreCase);
+            cleanName = Regex.Replace(cleanName, @"\+\s*\d+\s*Update", "", RegexOptions.IgnoreCase);
+            cleanName = Regex.Replace(cleanName, @"\+\s*\d+\s*Fix", "", RegexOptions.IgnoreCase);
+            cleanName = Regex.Replace(cleanName, @"\+\s*\d+\s*Soundtrack", "", RegexOptions.IgnoreCase);
+            cleanName = Regex.Replace(cleanName, @"\+\s*\d+\s*Online", "", RegexOptions.IgnoreCase);
 
             // Remove text in parentheses or square brackets
             cleanName = Regex.Replace(cleanName, @"[\[\(].*?[\]\)]", "").Trim();
@@ -639,9 +764,7 @@ namespace FitGirlStore
 
             return games;
         }
-
-       
-
+               
         private string ExtractVersionNumber(string name)
         {
             var versionPattern = @"(v[\d\.]+(?:\s*\(.*?\))?|Build \d+)";
@@ -1074,7 +1197,6 @@ namespace FitGirlStore
                 API.Instance.Database.Games.Update(game);
             }
         }
-
 
         protected void InvokeOnInstalled(GameInstalledEventArgs args)
         {
