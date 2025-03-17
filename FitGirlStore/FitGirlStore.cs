@@ -1,4 +1,5 @@
 using Playnite.SDK;
+using Playnite.SDK.Events;
 using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
@@ -10,6 +11,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Windows;
 
 namespace FitGirlStore
 {
@@ -475,11 +477,11 @@ namespace FitGirlStore
             var phrasesToRemove = new string[]
             {
         "Windows 7 Fix", "Bonus Soundtrack", "Bonus OST", "Ultimate Fishing Bundle",
-        "Digital Deluxe Edition", "Bonus Content", "Bonus", "Soundtrack",
-        "All DLCs", "HotFix", "HotFix 1", "Multiplayer", "DLCs", "+ DLCs",
+        "Digital Deluxe Edition", "Bonus Content", "Bonus","Bonuses", "Soundtrack",
+        "All DLCs","All DLC","OST Bundle", "HotFix", "HotFix 1", "Multiplayer","All previous DLCs", "DLCs", "+ DLCs","DLC",
         "+ DLC", "+ Update", "+ Fix", "+ Soundtrack", "+ Online",
         "+ Local Multiplayer", "- Online", "+ Online Multiplayer", "+ Online CO-OP",
-        "+ Local/Online Multiplayer", "+ Update", "+ DLC + Multiplayer"
+        "+ Local/Online Multiplayer", "+ Update", "+ DLC + Multiplayer", "- Game & Soundtrack Bundle", "+ CrackFix"
             };
 
             foreach (var phrase in phrasesToRemove)
@@ -1378,6 +1380,6 @@ namespace FitGirlStore
                 GameId = gameId;
             }
         }
-
+              
     }
 }
