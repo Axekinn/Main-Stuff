@@ -975,282 +975,132 @@ namespace FitGirlStore
             }
 
             bool isUpdateReady = game.FeatureIds != null && game.FeatureIds.Any(f => PlayniteApi.Database.Features.Get(f).Name.Equals("[Update Ready]", StringComparison.OrdinalIgnoreCase));
+            string repackFolder = FindRepackFolder(game.Name);
+
+            var downloadAction = game.GameActions.FirstOrDefault(action => action.Name == "Download: Fitgirl" && action.Type == GameActionType.URL);
+            var gameDownloadUrl = downloadAction?.Path;
+            if (string.IsNullOrEmpty(gameDownloadUrl))
+            {
+                API.Instance.Dialogs.ShowErrorMessage("Game download URL not found. Download cancelled.", "Error");
+                UpdateGameInstallationStatus(game, false);
+                return;
+            }
+
+            var magnetLink = ScrapeMagnetLink(gameDownloadUrl);
+            if (string.IsNullOrEmpty(magnetLink))
+            {
+                API.Instance.Dialogs.ShowErrorMessage("Magnet link not found. Download cancelled.", "Error");
+                UpdateGameInstallationStatus(game, false);
+                return;
+            }
+
+            magnetLink = HtmlUtility.HtmlDecode(magnetLink);
+            LogMagnetLink(logFilePath, magnetLink);
 
             if (isUpdateReady)
             {
-                // Handle the case where the game has the "[Update Ready]" feature
-                var downloadAction = game.GameActions.FirstOrDefault(action => action.Name == "Download: Fitgirl" && action.Type == GameActionType.URL);
-                var gameDownloadUrl = downloadAction?.Path;
-                if (!string.IsNullOrEmpty(gameDownloadUrl))
+                // Get the magnet link and update the repack even if there's already a repack
+                await StartFdmWithMagnetLink(fdmPath, magnetLink);
+
+                // Check if the download is complete
+                if (IsDownloadIncomplete(repackFolder))
                 {
-                    var magnetLink = ScrapeMagnetLink(gameDownloadUrl);
-                    if (!string.IsNullOrEmpty(magnetLink))
-                    {
-                        magnetLink = HtmlUtility.HtmlDecode(magnetLink);
-
-                        LogMagnetLink(logFilePath, magnetLink);
-
-                        await StartFdmWithMagnetLink(fdmPath, magnetLink);
-
-                        string repackFolder = FindRepackFolder(game.Name);
-
-                        // Check if the download is complete
-                        if (!IsDownloadIncomplete(repackFolder))
-                        {
-                            // Get the latest version from the site
-                            string latestVersion = await GetLatestVersionFromSite(gameDownloadUrl);
-
-                            // Handle existing version file
-                            var existingVersionFilePath = Directory.GetFiles(repackFolder, "*.txt").FirstOrDefault();
-                            if (existingVersionFilePath != null)
-                            {
-                                File.Delete(existingVersionFilePath);
-                            }
-
-                            // Add {latestVersion}.txt file
-                            var versionFilePath = Path.Combine(repackFolder, $"{latestVersion}.txt");
-                            File.WriteAllText(versionFilePath, latestVersion);
-
-                            // Remove the "[Update Ready]" feature
-                            var updateReadyFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Update Ready]", StringComparison.OrdinalIgnoreCase));
-                            if (updateReadyFeature != null && game.FeatureIds.Contains(updateReadyFeature.Id))
-                            {
-                                game.FeatureIds.Remove(updateReadyFeature.Id);
-                                API.Instance.Database.Games.Update(game);
-                            }
-
-                            // Update the game version
-                            game.Version = latestVersion;
-                            API.Instance.Database.Games.Update(game);
-
-                            // Proceed with the installation
-                            var setupExe = Directory.GetFiles(repackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
-                            if (!string.IsNullOrEmpty(setupExe))
-                            {
-                                game.InstallDirectory = repackFolder;
-                                API.Instance.Database.Games.Update(game);
-
-                                try
-                                {
-                                    await Task.Run(() =>
-                                    {
-                                        using (var process = new Process())
-                                        {
-                                            process.StartInfo.FileName = setupExe;
-                                            process.StartInfo.WorkingDirectory = repackFolder;
-                                            process.StartInfo.UseShellExecute = true;
-                                            process.Start();
-                                            process.WaitForExit();
-                                        }
-
-                                        // Wait and retry to find the newly installed game directory
-                                        var rootDrive = Path.GetPathRoot(repackFolder);
-                                        var gamesFolderPath = Path.Combine(rootDrive, "Games");
-                                        if (Directory.Exists(gamesFolderPath))
-                                        {
-                                            var installedGameDir = Directory.GetDirectories(gamesFolderPath, "*", SearchOption.AllDirectories)
-                                                .FirstOrDefault(d => Path.GetFileName(d).Equals(game.Name, StringComparison.OrdinalIgnoreCase));
-
-                                            if (!string.IsNullOrEmpty(installedGameDir))
-                                            {
-                                                game.InstallDirectory = installedGameDir;
-                                                API.Instance.Database.Games.Update(game);
-
-                                                game = API.Instance.Database.Games.Get(game.Id);
-                                            }
-                                        }
-
-                                        // Update game actions and status
-                                        UpdateGameActionsAndStatus(game, userDataPath);
-                                    });
-                                }
-                                catch (Exception ex)
-                                {
-                                    logger.Error(ex, "Error while running setup.exe");
-                                    API.Instance.Dialogs.ShowErrorMessage("An error occurred while running setup.exe. Installation cancelled.", "Error");
-                                    UpdateGameInstallationStatus(game, false);
-                                    return;
-                                }
-                            }
-                        }
-                        else
-                        {
-                            API.Instance.Dialogs.ShowErrorMessage("Download incomplete. Installation cancelled.", "Error");
-                            UpdateGameInstallationStatus(game, false);
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        API.Instance.Dialogs.ShowErrorMessage("Magnet link not found. Download cancelled.", "Error");
-                        UpdateGameInstallationStatus(game, false);
-                        return;
-                    }
+                    API.Instance.Dialogs.ShowErrorMessage("Download incomplete. Installation cancelled.", "Error");
+                    UpdateGameInstallationStatus(game, false);
+                    return;
                 }
-                else
+
+                // Get the latest version from the site
+                string latestVersion = await GetLatestVersionFromSite(gameDownloadUrl);
+
+                // Handle existing version file
+                var existingVersionFilePath = Directory.GetFiles(repackFolder, "*.txt").FirstOrDefault();
+                if (existingVersionFilePath != null)
                 {
-                    API.Instance.Dialogs.ShowErrorMessage("Game download URL not found. Download cancelled.", "Error");
+                    File.Delete(existingVersionFilePath);
+                }
+
+                // Add {latestVersion}.txt file
+                var versionFilePath = Path.Combine(repackFolder, $"{latestVersion}.txt");
+                File.WriteAllText(versionFilePath, latestVersion);
+
+                // Remove the "[Update Ready]" feature
+                var updateReadyFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Update Ready]", StringComparison.OrdinalIgnoreCase));
+                if (updateReadyFeature != null && game.FeatureIds.Contains(updateReadyFeature.Id))
+                {
+                    game.FeatureIds.Remove(updateReadyFeature.Id);
+                    API.Instance.Database.Games.Update(game);
+                }
+
+                // Update the game version
+                game.Version = latestVersion;
+                API.Instance.Database.Games.Update(game);
+            }
+            else if (!isUpdateReady && (string.IsNullOrEmpty(repackFolder) || IsDownloadIncomplete(repackFolder)))
+            {
+                // No "[Update Ready]" feature and no repack or repack is incomplete, get the magnet link, download the repack, and run setup.exe
+                await StartFdmWithMagnetLink(fdmPath, magnetLink);
+
+                repackFolder = FindRepackFolder(game.Name);
+                if (IsDownloadIncomplete(repackFolder))
+                {
+                    API.Instance.Dialogs.ShowErrorMessage("Download incomplete. Installation cancelled.", "Error");
                     UpdateGameInstallationStatus(game, false);
                     return;
                 }
             }
-            else
+
+            // Proceed with the installation
+            var setupExe = Directory.GetFiles(repackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
+            if (string.IsNullOrEmpty(setupExe))
             {
-                // Proceed with normal installation process
-                string repackFolder = FindRepackFolder(game.Name);
-                if (!string.IsNullOrEmpty(repackFolder))
+                API.Instance.Dialogs.ShowErrorMessage("setup.exe not found. Installation cancelled.", "Error");
+                UpdateGameInstallationStatus(game, false);
+                return;
+            }
+
+            game.InstallDirectory = repackFolder;
+            API.Instance.Database.Games.Update(game);
+
+            try
+            {
+                await Task.Run(() =>
                 {
-                    // Get the latest version from the site
-                    var downloadAction = game.GameActions.FirstOrDefault(action => action.Name == "Download: Fitgirl" && action.Type == GameActionType.URL);
-                    var gameDownloadUrl = downloadAction?.Path;
-                    string latestVersion = !string.IsNullOrEmpty(gameDownloadUrl) ? await GetLatestVersionFromSite(gameDownloadUrl) : game.Version;
-
-                    // Handle existing version file
-                    var existingVersionFilePath = Directory.GetFiles(repackFolder, "*.txt").FirstOrDefault();
-                    if (existingVersionFilePath != null)
+                    using (var process = new Process())
                     {
-                        File.Delete(existingVersionFilePath);
+                        process.StartInfo.FileName = setupExe;
+                        process.StartInfo.WorkingDirectory = repackFolder;
+                        process.StartInfo.UseShellExecute = true;
+                        process.Start();
+                        process.WaitForExit();
                     }
 
-                    // Add {latestVersion}.txt file
-                    var versionFilePath = Path.Combine(repackFolder, $"{latestVersion}.txt");
-                    if (!File.Exists(versionFilePath))
+                    // Wait and retry to find the newly installed game directory
+                    var rootDrive = Path.GetPathRoot(repackFolder);
+                    var gamesFolderPath = Path.Combine(rootDrive, "Games");
+                    if (Directory.Exists(gamesFolderPath))
                     {
-                        File.WriteAllText(versionFilePath, latestVersion);
-                    }
+                        var installedGameDir = Directory.GetDirectories(gamesFolderPath, "*", SearchOption.AllDirectories)
+                            .FirstOrDefault(d => Path.GetFileName(d).Equals(game.Name, StringComparison.OrdinalIgnoreCase));
 
-                    var setupExe = Directory.GetFiles(repackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
-                    if (!string.IsNullOrEmpty(setupExe))
-                    {
-                        game.InstallDirectory = repackFolder;
-                        API.Instance.Database.Games.Update(game);
-
-                        try
+                        if (!string.IsNullOrEmpty(installedGameDir))
                         {
-                            await Task.Run(() =>
-                            {
-                                using (var process = new Process())
-                                {
-                                    process.StartInfo.FileName = setupExe;
-                                    process.StartInfo.WorkingDirectory = repackFolder;
-                                    process.StartInfo.UseShellExecute = true;
-                                    process.Start();
-                                    process.WaitForExit();
-                                }
+                            game.InstallDirectory = installedGameDir;
+                            API.Instance.Database.Games.Update(game);
 
-                                // Wait and retry to find the newly installed game directory
-                                var rootDrive = Path.GetPathRoot(repackFolder);
-                                var gamesFolderPath = Path.Combine(rootDrive, "Games");
-                                if (Directory.Exists(gamesFolderPath))
-                                {
-                                    var installedGameDir = Directory.GetDirectories(gamesFolderPath, "*", SearchOption.AllDirectories)
-                                        .FirstOrDefault(d => Path.GetFileName(d).Equals(game.Name, StringComparison.OrdinalIgnoreCase));
-
-                                    if (!string.IsNullOrEmpty(installedGameDir))
-                                    {
-                                        game.InstallDirectory = installedGameDir;
-                                        API.Instance.Database.Games.Update(game);
-
-                                        game = API.Instance.Database.Games.Get(game.Id);
-                                    }
-                                }
-
-                                // Update game actions and status
-                                UpdateGameActionsAndStatus(game, userDataPath);
-                            });
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.Error(ex, "Error while running setup.exe");
-                            API.Instance.Dialogs.ShowErrorMessage("An error occurred while running setup.exe. Installation cancelled.", "Error");
-                            UpdateGameInstallationStatus(game, false);
-                            return;
+                            game = API.Instance.Database.Games.Get(game.Id);
                         }
                     }
-                }
-                else
-                {
-                    var downloadAction = game.GameActions.FirstOrDefault(action => action.Name == "Download: Fitgirl" && action.Type == GameActionType.URL);
-                    var gameDownloadUrl = downloadAction?.Path;
-                    if (!string.IsNullOrEmpty(gameDownloadUrl))
-                    {
-                        var magnetLink = ScrapeMagnetLink(gameDownloadUrl);
-                        if (!string.IsNullOrEmpty(magnetLink))
-                        {
-                            magnetLink = HtmlUtility.HtmlDecode(magnetLink);
 
-                            LogMagnetLink(logFilePath, magnetLink);
-
-                            await StartFdmWithMagnetLink(fdmPath, magnetLink);
-
-                            repackFolder = FindRepackFolder(game.Name);
-
-                            if (!IsDownloadIncomplete(repackFolder))
-                            {
-                                var setupExe = Directory.GetFiles(repackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
-                                if (!string.IsNullOrEmpty(setupExe))
-                                {
-                                    game.InstallDirectory = repackFolder;
-                                    API.Instance.Database.Games.Update(game);
-
-                                    try
-                                    {
-                                        await Task.Run(() =>
-                                        {
-                                            using (var process = new Process())
-                                            {
-                                                process.StartInfo.FileName = setupExe;
-                                                process.StartInfo.WorkingDirectory = repackFolder;
-                                                process.StartInfo.UseShellExecute = true;
-                                                process.Start();
-                                                process.WaitForExit();
-                                            }
-
-                                            // Wait and retry to find the newly installed game directory
-                                            var rootDrive = Path.GetPathRoot(repackFolder);
-                                            var gamesFolderPath = Path.Combine(rootDrive, "Games");
-                                            if (Directory.Exists(gamesFolderPath))
-                                            {
-                                                var installedGameDir = Directory.GetDirectories(gamesFolderPath, "*", SearchOption.AllDirectories)
-                                                    .FirstOrDefault(d => Path.GetFileName(d).Equals(game.Name, StringComparison.OrdinalIgnoreCase));
-
-                                                if (!string.IsNullOrEmpty(installedGameDir))
-                                                {
-                                                    game.InstallDirectory = installedGameDir;
-                                                    API.Instance.Database.Games.Update(game);
-
-                                                    game = API.Instance.Database.Games.Get(game.Id);
-                                                }
-                                            }
-
-                                            // Update game actions and status
-                                            UpdateGameActionsAndStatus(game, userDataPath);
-                                        });
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        logger.Error(ex, "Error while running setup.exe");
-                                        API.Instance.Dialogs.ShowErrorMessage("An error occurred while running setup.exe. Installation cancelled.", "Error");
-                                        UpdateGameInstallationStatus(game, false);
-                                        return;
-                                    }
-                                }
-                            }
-                        }
-                        else
-                        {
-                            API.Instance.Dialogs.ShowErrorMessage("Magnet link not found. Download cancelled.", "Error");
-                            UpdateGameInstallationStatus(game, false);
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        API.Instance.Dialogs.ShowErrorMessage("Game download URL not found. Download cancelled.", "Error");
-                        UpdateGameInstallationStatus(game, false);
-                        return;
-                    }
-                }
+                    // Update game actions and status
+                    UpdateGameActionsAndStatus(game, userDataPath);
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "Error while running setup.exe");
+                API.Instance.Dialogs.ShowErrorMessage("An error occurred while running setup.exe. Installation cancelled.", "Error");
+                UpdateGameInstallationStatus(game, false);
             }
         }
 
