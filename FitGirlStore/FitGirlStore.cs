@@ -997,9 +997,19 @@ namespace FitGirlStore
                         // Check if the download is complete
                         if (!IsDownloadIncomplete(repackFolder))
                         {
-                            // Add version.txt file
-                            var versionFile = Path.Combine(repackFolder, "version.txt");
-                            File.WriteAllText(versionFile, game.Version);
+                            // Get the latest version from the site
+                            string latestVersion = await GetLatestVersionFromSite(gameDownloadUrl);
+
+                            // Handle existing version file
+                            var existingVersionFilePath = Directory.GetFiles(repackFolder, "*.txt").FirstOrDefault();
+                            if (existingVersionFilePath != null)
+                            {
+                                File.Delete(existingVersionFilePath);
+                            }
+
+                            // Add {latestVersion}.txt file
+                            var versionFilePath = Path.Combine(repackFolder, $"{latestVersion}.txt");
+                            File.WriteAllText(versionFilePath, latestVersion);
 
                             // Remove the "[Update Ready]" feature
                             var updateReadyFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Update Ready]", StringComparison.OrdinalIgnoreCase));
@@ -1008,6 +1018,10 @@ namespace FitGirlStore
                                 game.FeatureIds.Remove(updateReadyFeature.Id);
                                 API.Instance.Database.Games.Update(game);
                             }
+
+                            // Update the game version
+                            game.Version = latestVersion;
+                            API.Instance.Database.Games.Update(game);
 
                             // Proceed with the installation
                             var setupExe = Directory.GetFiles(repackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
@@ -1086,6 +1100,25 @@ namespace FitGirlStore
                 string repackFolder = FindRepackFolder(game.Name);
                 if (!string.IsNullOrEmpty(repackFolder))
                 {
+                    // Get the latest version from the site
+                    var downloadAction = game.GameActions.FirstOrDefault(action => action.Name == "Download: Fitgirl" && action.Type == GameActionType.URL);
+                    var gameDownloadUrl = downloadAction?.Path;
+                    string latestVersion = !string.IsNullOrEmpty(gameDownloadUrl) ? await GetLatestVersionFromSite(gameDownloadUrl) : game.Version;
+
+                    // Handle existing version file
+                    var existingVersionFilePath = Directory.GetFiles(repackFolder, "*.txt").FirstOrDefault();
+                    if (existingVersionFilePath != null)
+                    {
+                        File.Delete(existingVersionFilePath);
+                    }
+
+                    // Add {latestVersion}.txt file
+                    var versionFilePath = Path.Combine(repackFolder, $"{latestVersion}.txt");
+                    if (!File.Exists(versionFilePath))
+                    {
+                        File.WriteAllText(versionFilePath, latestVersion);
+                    }
+
                     var setupExe = Directory.GetFiles(repackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
                     if (!string.IsNullOrEmpty(setupExe))
                     {
@@ -1133,12 +1166,6 @@ namespace FitGirlStore
                             UpdateGameInstallationStatus(game, false);
                             return;
                         }
-                    }
-                    else
-                    {
-                        API.Instance.Dialogs.ShowErrorMessage("Setup.exe not found. Installation cancelled.", "Error");
-                        UpdateGameInstallationStatus(game, false);
-                        return;
                     }
                 }
                 else
@@ -1225,6 +1252,17 @@ namespace FitGirlStore
                     }
                 }
             }
+        }
+
+        private async Task<string> GetLatestVersionFromSite(string gameDownloadUrl)
+        {
+            using (var httpClient = new HttpClient())
+            {
+                var response = await httpClient.GetStringAsync(gameDownloadUrl);
+                var versionMatch = Regex.Match(response, @"v\d+(\.\d+)*");
+                return versionMatch.Success ? versionMatch.Value : string.Empty;
+            }
+
         }
 
         private bool IsDownloadIncomplete(string repackFolder)
