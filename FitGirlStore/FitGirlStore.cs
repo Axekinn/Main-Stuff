@@ -1,17 +1,15 @@
 using Playnite.SDK;
-using Playnite.SDK.Events;
 using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.Eventing.Reader;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 
 namespace FitGirlStore
 {
@@ -22,11 +20,17 @@ namespace FitGirlStore
         public override string Name => "FitGirl Store";
         private static readonly string baseUrl = "https://fitgirl-repacks.site/all-my-repacks-a-z/?lcp_page0=";
         private static readonly string logFilePath = "Games.log";
-
+        private readonly Timer updateTimer;
 
         public FitGirlStore(IPlayniteAPI api) : base(api)
         {
             Properties = new LibraryPluginProperties { HasSettings = false };
+
+            // Set up the timer to run every 3 hours (3 * 60 * 60 * 1000 milliseconds)
+            updateTimer = new Timer(async _ => await AutoUpdateScanner(), null, 0, 3 * 60 * 60 * 1000);
+
+            // Hook into the library update event
+            PlayniteApi.Database.Games.ItemUpdated += async (sender, e) => { await AutoUpdateScanner(); updateTimer.Change(0, 3 * 60 * 60 * 1000); };
         }
 
         private async Task<List<GameMetadata>> ScrapeSite()
@@ -961,7 +965,7 @@ namespace FitGirlStore
             }
         }
 
-        private async void GameInstaller(Game game)
+        private async Task GameInstaller(Game game)
         {
             var userDataPath = GetPluginUserDataPath();
             var fdmPath = Path.Combine(userDataPath, "Free Download Manager", "fdm.exe");
@@ -1336,6 +1340,89 @@ namespace FitGirlStore
             {
                 GameId = gameId;
             }
+        }
+
+        private async Task AutoUpdateScanner()
+        {
+            LogAutoUpdate("Auto Update Started");
+
+            var autoUpdateFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Auto Update]", StringComparison.OrdinalIgnoreCase));
+            var updateReadyFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Update Ready]", StringComparison.OrdinalIgnoreCase));
+
+            if (autoUpdateFeature == null)
+            {
+                logger.Info("No '[Auto Update]' feature found in the database.");
+                LogAutoUpdate("Auto Update Stopped");
+                return;
+            }
+
+            if (updateReadyFeature == null)
+            {
+                logger.Info("No '[Update Ready]' feature found in the database.");
+                LogAutoUpdate("Auto Update Stopped");
+                return;
+            }
+
+            var gamesWithAutoUpdate = PlayniteApi.Database.Games.Where(g => g.FeatureIds != null && g.FeatureIds.Contains(autoUpdateFeature.Id)).ToList();
+
+            foreach (var game in gamesWithAutoUpdate)
+            {
+                if (game.GameActions == null)
+                {
+                    logger.Info($"No game actions found for game: {game.Name}");
+                    continue;
+                }
+
+                var downloadAction = game.GameActions.FirstOrDefault(action => action.Name == "Download: Fitgirl" && action.Type == GameActionType.URL);
+                if (downloadAction == null)
+                {
+                    logger.Info($"No download action found for game: {game.Name}");
+                    continue;
+                }
+
+                string gameDownloadUrl = downloadAction.Path;
+                if (string.IsNullOrEmpty(gameDownloadUrl))
+                {
+                    logger.Info($"No URL found for game: {game.Name}");
+                    continue;
+                }
+
+                string latestVersion = await CheckForNewVersion(gameDownloadUrl);
+                if (!string.IsNullOrEmpty(latestVersion) && IsNewerVersion(game.Version, latestVersion))
+                {
+                    logger.Info($"New version found for game: {game.Name}, Version: {latestVersion}");
+                    LogAutoUpdate($"Updating {game.Name} to {latestVersion}");
+                    AddUpdateReadyFeature(game);
+                }
+            }
+
+            var gamesWithUpdateReady = PlayniteApi.Database.Games.Where(g => g.FeatureIds != null && g.FeatureIds.Contains(autoUpdateFeature.Id) && g.FeatureIds.Contains(updateReadyFeature.Id)).ToList();
+            foreach (var game in gamesWithUpdateReady)
+            {
+                await GameInstaller(game);
+            }
+
+            LogAutoUpdate("Auto Update Stopped");
+        }
+
+        private async Task<string> CheckForNewVersion(string gameDownloadUrl)
+        {
+            string pageContent = await LoadPageContent(gameDownloadUrl);
+            string versionPattern = @"v[\d\.]+";
+            var match = Regex.Match(pageContent, versionPattern, RegexOptions.IgnoreCase);
+
+            if (match.Success)
+            {
+                return match.Value;
+            }
+
+            return string.Empty;
+        }
+                
+        private void LogAutoUpdate(string message)
+        {
+            string logMessage = $"{DateTime.Now:HH:mm} - {message}";
+            File.AppendAllText(logFilePath, logMessage + Environment.NewLine);
         }
 
     }
