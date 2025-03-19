@@ -21,16 +21,21 @@ namespace FitGirlStore
         private static readonly string baseUrl = "https://fitgirl-repacks.site/all-my-repacks-a-z/?lcp_page0=";
         private static readonly string logFilePath = "Games.log";
         private readonly Timer updateTimer;
+        private bool isScannerRunning = false; // Prevent overlapping runs
+        private readonly object scannerLock = new object(); // For thread safety
 
         public FitGirlStore(IPlayniteAPI api) : base(api)
         {
             Properties = new LibraryPluginProperties { HasSettings = false };
 
             // Set up the timer to run every 3 hours (3 * 60 * 60 * 1000 milliseconds)
-            updateTimer = new Timer(async _ => await AutoUpdateScanner(), null, 0, 3 * 60 * 60 * 1000);
+            updateTimer = new Timer(async _ => await TimerTriggeredUpdate(), null, 0, 3 * 60 * 60 * 1000);
 
             // Hook into the library update event
-            PlayniteApi.Database.Games.ItemUpdated += async (sender, e) => { await AutoUpdateScanner(); updateTimer.Change(0, 3 * 60 * 60 * 1000); };
+            PlayniteApi.Database.Games.ItemUpdated += async (sender, e) =>
+            {
+                await LibraryEventTriggeredUpdate();
+            };
         }
 
         private async Task<List<GameMetadata>> ScrapeSite()
@@ -280,6 +285,8 @@ namespace FitGirlStore
             }
         }
 
+
+
         private bool IsDuplicate(GameMetadata gameMetadata)
         {
             // Use the original name for comparison
@@ -448,7 +455,15 @@ namespace FitGirlStore
         {
             using (var httpClient = new HttpClient())
             {
-                return await httpClient.GetStringAsync(url);
+                try
+                {
+                    return await httpClient.GetStringAsync(url);
+                }
+                catch (HttpRequestException e)
+                {
+                    logger.Error(e, $"Error while loading page content from {url}");
+                    throw;
+                }
             }
         }
 
@@ -768,14 +783,7 @@ namespace FitGirlStore
                                     WorkingDir = folder
                                 });
                             }
-
-                            gameMetadata.GameActions.Add(new GameAction()
-                            {
-                                Name = "Download: Fitgirl",
-                                Type = GameActionType.URL,
-                                Path = scrapedGames.FirstOrDefault()?.GameActions.FirstOrDefault()?.Path, // Use URL from scraped games
-                                IsPlayAction = false
-                            });
+                                                   
 
                             games.Add(gameMetadata);
                             uniqueGames.Add(gameMetadata.Name);
@@ -1342,28 +1350,73 @@ namespace FitGirlStore
             }
         }
 
+        private async Task TimerTriggeredUpdate()
+        {
+            logger.Info("Timer triggered Auto Update Scanner.");
+            await RunAutoUpdateScanner();
+        }
+
+        private async Task LibraryEventTriggeredUpdate()
+        {
+            logger.Info("Library event triggered Auto Update Scanner.");
+            await RunAutoUpdateScanner();
+        }
+
+        private async Task RunAutoUpdateScanner()
+        {
+            lock (scannerLock)
+            {
+                if (isScannerRunning)
+                {
+                    logger.Info("Auto Update Scanner is already running. Skipping...");
+                    return;
+                }
+
+                isScannerRunning = true; // Mark scanner as running
+            }
+
+            try
+            {
+                await AutoUpdateScanner();
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error in Auto Update Scanner: {ex.Message}");
+            }
+            finally
+            {
+                lock (scannerLock)
+                {
+                    isScannerRunning = false; // Mark scanner as stopped
+                }
+
+                // Schedule the next run after 3 hours
+                updateTimer.Change(3 * 60 * 60 * 1000, Timeout.Infinite); // 3 hours delay
+            }
+        }
+
         private async Task AutoUpdateScanner()
         {
             LogAutoUpdate("Auto Update Started");
 
+            // Fetch features from the database
             var autoUpdateFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Auto Update]", StringComparison.OrdinalIgnoreCase));
             var updateReadyFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Update Ready]", StringComparison.OrdinalIgnoreCase));
 
-            if (autoUpdateFeature == null)
+            if (autoUpdateFeature == null || updateReadyFeature == null)
             {
-                logger.Info("No '[Auto Update]' feature found in the database.");
+                logger.Info("Required features not found. Stopping the scanner.");
                 LogAutoUpdate("Auto Update Stopped");
                 return;
             }
 
-            if (updateReadyFeature == null)
-            {
-                logger.Info("No '[Update Ready]' feature found in the database.");
-                LogAutoUpdate("Auto Update Stopped");
-                return;
-            }
+            // Wait for library update to complete
+            await Task.Delay(10000); // Adjust delay as needed
 
-            var gamesWithAutoUpdate = PlayniteApi.Database.Games.Where(g => g.FeatureIds != null && g.FeatureIds.Contains(autoUpdateFeature.Id)).ToList();
+            // Filter games with the '[Auto Update]' feature
+            var gamesWithAutoUpdate = PlayniteApi.Database.Games
+                .Where(g => g.FeatureIds != null && g.FeatureIds.Contains(autoUpdateFeature.Id))
+                .ToList();
 
             foreach (var game in gamesWithAutoUpdate)
             {
@@ -1373,7 +1426,8 @@ namespace FitGirlStore
                     continue;
                 }
 
-                var downloadAction = game.GameActions.FirstOrDefault(action => action.Name == "Download: Fitgirl" && action.Type == GameActionType.URL);
+                var downloadAction = game.GameActions
+                    .FirstOrDefault(action => action.Name == "Download: Fitgirl" && action.Type == GameActionType.URL);
                 if (downloadAction == null)
                 {
                     logger.Info($"No download action found for game: {game.Name}");
@@ -1387,6 +1441,7 @@ namespace FitGirlStore
                     continue;
                 }
 
+                // Check for a newer version
                 string latestVersion = await CheckForNewVersion(gameDownloadUrl);
                 if (!string.IsNullOrEmpty(latestVersion) && IsNewerVersion(game.Version, latestVersion))
                 {
@@ -1396,13 +1451,28 @@ namespace FitGirlStore
                 }
             }
 
-            var gamesWithUpdateReady = PlayniteApi.Database.Games.Where(g => g.FeatureIds != null && g.FeatureIds.Contains(autoUpdateFeature.Id) && g.FeatureIds.Contains(updateReadyFeature.Id)).ToList();
-            foreach (var game in gamesWithUpdateReady)
+            // Process games with both '[Auto Update]' and '[Update Ready]' features
+            var gamesReadyForInstall = gamesWithAutoUpdate
+                .Where(g => g.FeatureIds.Contains(updateReadyFeature.Id))
+                .ToList();
+
+            foreach (var game in gamesReadyForInstall)
             {
                 await GameInstaller(game);
+
+                // Wait for the current game to finish installing
+                while (game.IsInstalling)
+                {
+                    await Task.Delay(1000); // Adjust delay as needed
+                }
             }
 
             LogAutoUpdate("Auto Update Stopped");
+        }
+
+        private void LogAutoUpdate(string message)
+        {
+            File.AppendAllText("Games.log", $"{DateTime.Now:HH:mm} - {message}{Environment.NewLine}");
         }
 
         private async Task<string> CheckForNewVersion(string gameDownloadUrl)
@@ -1418,12 +1488,6 @@ namespace FitGirlStore
 
             return string.Empty;
         }
-                
-        private void LogAutoUpdate(string message)
-        {
-            string logMessage = $"{DateTime.Now:HH:mm} - {message}";
-            File.AppendAllText(logFilePath, logMessage + Environment.NewLine);
-        }
-
+                      
     }
 }
