@@ -783,7 +783,7 @@ namespace FitGirlStore
                                     WorkingDir = folder
                                 });
                             }
-                                                   
+
 
                             games.Add(gameMetadata);
                             uniqueGames.Add(gameMetadata.Name);
@@ -792,7 +792,7 @@ namespace FitGirlStore
                 }
             }
 
-            // Step 4: Check "Repacks" folder, add "Install Ready" feature to existing games and log repacks
+            // Step 4: Check "Repacks" folder, add new games as uninstalled or update existing ones, and add "[Install Ready]" feature
             foreach (var drive in drives)
             {
                 var repacksFolderPath = Path.Combine(drive.RootDirectory.FullName, "Repacks");
@@ -802,14 +802,15 @@ namespace FitGirlStore
                     {
                         var folderName = Path.GetFileName(folder);
                         var gameName = ConvertHyphenToColon(CleanGameName(SanitizePath(folderName)));
-                        var existingGame = PlayniteApi.Database.Games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
+                        var existingGame = PlayniteApi.Database.Games.FirstOrDefault(g => g.PluginId == Id && g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
                         var versionFiles = Directory.GetFiles(folder, "*.txt")
                                                     .Where(file => Regex.IsMatch(Path.GetFileNameWithoutExtension(file), @"^v\d+(\.\d+)*$"));
 
                         if (existingGame != null)
                         {
-                            // Add "Install Ready" feature to existing game
-                            AddInstallReadyFeature(existingGame);
+                            // Update existing game
+                            existingGame.IsInstalled = false;
+                            existingGame.InstallDirectory = null;
 
                             if (versionFiles.Any())
                             {
@@ -817,17 +818,15 @@ namespace FitGirlStore
                                 existingGame.Version = localVersion;
                             }
 
+                            // Add "[Install Ready]" feature to the game
+                            AddInstallReadyFeature(existingGame);
+
                             API.Instance.Database.Games.Update(existingGame);
                             uniqueGames.Add(existingGame.Name);
                         }
                         else
                         {
                             // Add as a new game if it doesn't exist
-                            var exeFiles = Directory.GetFiles(folder, "*.exe", SearchOption.AllDirectories)
-                                                    .Where(exe => !exclusions.Contains(Path.GetFileName(exe)) &&
-                                                                  !Path.GetFileName(exe).ToLower().Contains("setup") &&
-                                                                  !Path.GetFileName(exe).ToLower().Contains("unins"));
-
                             var gameMetadata = new GameMetadata()
                             {
                                 Name = gameName,
@@ -847,19 +846,7 @@ namespace FitGirlStore
                                 gameMetadata.Version = localVersion;
                             }
 
-                            foreach (var exe in exeFiles)
-                            {
-                                gameMetadata.GameActions.Add(new GameAction()
-                                {
-                                    Type = GameActionType.File,
-                                    Path = exe,
-                                    Name = Path.GetFileNameWithoutExtension(exe),
-                                    IsPlayAction = true,
-                                    WorkingDir = folder
-                                });
-                            }
-
-                            // Add "Install Ready" feature to new game
+                            // Add "[Install Ready]" feature to the new game
                             AddInstallReadyFeature(gameMetadata);
 
                             games.Add(gameMetadata);
@@ -868,6 +855,7 @@ namespace FitGirlStore
                     }
                 }
             }
+
 
             return games;
         }
@@ -991,13 +979,62 @@ namespace FitGirlStore
 
             var downloadAction = game.GameActions.FirstOrDefault(action => action.Name == "Download: Fitgirl" && action.Type == GameActionType.URL);
             var gameDownloadUrl = downloadAction?.Path;
+
             if (string.IsNullOrEmpty(gameDownloadUrl))
             {
-                API.Instance.Dialogs.ShowErrorMessage("Game download URL not found. Download cancelled.", "Error");
-                UpdateGameInstallationStatus(game, false);
-                return;
+                // If no URL action, attempt to locate repack in "Repacks" folder and run setup.exe
+                var repacksFolder = Path.Combine(userDataPath, "Repacks");
+
+                if (Directory.Exists(repacksFolder))
+                {
+                    repackFolder = Directory.GetDirectories(repacksFolder, "*", SearchOption.AllDirectories)
+                        .FirstOrDefault(d => Path.GetFileName(d).Equals(game.Name, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (string.IsNullOrEmpty(repackFolder))
+                {
+                    API.Instance.Dialogs.ShowErrorMessage($"Repack for {game.Name} not found in the 'Repacks' folder. Installation cancelled.", "Error");
+                    UpdateGameInstallationStatus(game, false);
+                    return;
+                }
+
+                // Run setup.exe directly from the located repack folder
+                var setupExe = Directory.GetFiles(repackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
+                if (string.IsNullOrEmpty(setupExe))
+                {
+                    API.Instance.Dialogs.ShowErrorMessage("setup.exe not found. Installation cancelled.", "Error");
+                    UpdateGameInstallationStatus(game, false);
+                    return;
+                }
+
+                try
+                {
+                    await Task.Run(() =>
+                    {
+                        using (var process = new Process())
+                        {
+                            process.StartInfo.FileName = setupExe;
+                            process.StartInfo.WorkingDirectory = repackFolder;
+                            process.StartInfo.UseShellExecute = true;
+                            process.Start();
+                            process.WaitForExit();
+                        }
+                    });
+
+                    game.InstallDirectory = repackFolder;
+                    API.Instance.Database.Games.Update(game);
+
+                }
+                catch (Exception ex)
+                {
+                    logger.Error(ex, "Error while running setup.exe");
+                    API.Instance.Dialogs.ShowErrorMessage("An error occurred while running setup.exe. Installation cancelled.", "Error");
+                    UpdateGameInstallationStatus(game, false);
+                }
+                return; // End processing here since the repack was handled directly
             }
 
+            // Existing logic for magnet link download and "[Update Ready]" feature handling
             var magnetLink = ScrapeMagnetLink(gameDownloadUrl);
             if (string.IsNullOrEmpty(magnetLink))
             {
@@ -1011,10 +1048,8 @@ namespace FitGirlStore
 
             if (isUpdateReady)
             {
-                // Get the magnet link and update the repack even if there's already a repack
                 await StartFdmWithMagnetLink(fdmPath, magnetLink);
 
-                // Check if the download is complete
                 if (IsDownloadIncomplete(repackFolder))
                 {
                     API.Instance.Dialogs.ShowErrorMessage("Download incomplete. Installation cancelled.", "Error");
@@ -1022,21 +1057,16 @@ namespace FitGirlStore
                     return;
                 }
 
-                // Get the latest version from the site
                 string latestVersion = await GetLatestVersionFromSite(gameDownloadUrl);
-
-                // Handle existing version file
                 var existingVersionFilePath = Directory.GetFiles(repackFolder, "*.txt").FirstOrDefault();
                 if (existingVersionFilePath != null)
                 {
                     File.Delete(existingVersionFilePath);
                 }
 
-                // Add {latestVersion}.txt file
                 var versionFilePath = Path.Combine(repackFolder, $"{latestVersion}.txt");
                 File.WriteAllText(versionFilePath, latestVersion);
 
-                // Remove the "[Update Ready]" feature
                 var updateReadyFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Update Ready]", StringComparison.OrdinalIgnoreCase));
                 if (updateReadyFeature != null && game.FeatureIds.Contains(updateReadyFeature.Id))
                 {
@@ -1044,13 +1074,11 @@ namespace FitGirlStore
                     API.Instance.Database.Games.Update(game);
                 }
 
-                // Update the game version
                 game.Version = latestVersion;
                 API.Instance.Database.Games.Update(game);
             }
             else if (!isUpdateReady && (string.IsNullOrEmpty(repackFolder) || IsDownloadIncomplete(repackFolder)))
             {
-                // No "[Update Ready]" feature and no repack or repack is incomplete, get the magnet link, download the repack, and run setup.exe
                 await StartFdmWithMagnetLink(fdmPath, magnetLink);
 
                 repackFolder = FindRepackFolder(game.Name);
@@ -1062,9 +1090,8 @@ namespace FitGirlStore
                 }
             }
 
-            // Proceed with the installation
-            var setupExe = Directory.GetFiles(repackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
-            if (string.IsNullOrEmpty(setupExe))
+            var setupExeFinal = Directory.GetFiles(repackFolder, "setup.exe", SearchOption.AllDirectories).FirstOrDefault();
+            if (string.IsNullOrEmpty(setupExeFinal))
             {
                 API.Instance.Dialogs.ShowErrorMessage("setup.exe not found. Installation cancelled.", "Error");
                 UpdateGameInstallationStatus(game, false);
@@ -1080,14 +1107,13 @@ namespace FitGirlStore
                 {
                     using (var process = new Process())
                     {
-                        process.StartInfo.FileName = setupExe;
+                        process.StartInfo.FileName = setupExeFinal;
                         process.StartInfo.WorkingDirectory = repackFolder;
                         process.StartInfo.UseShellExecute = true;
                         process.Start();
                         process.WaitForExit();
                     }
 
-                    // Wait and retry to find the newly installed game directory
                     var rootDrive = Path.GetPathRoot(repackFolder);
                     var gamesFolderPath = Path.Combine(rootDrive, "Games");
                     if (Directory.Exists(gamesFolderPath))
@@ -1104,7 +1130,6 @@ namespace FitGirlStore
                         }
                     }
 
-                    // Update game actions and status
                     UpdateGameActionsAndStatus(game, userDataPath);
                 });
             }
@@ -1115,6 +1140,7 @@ namespace FitGirlStore
                 UpdateGameInstallationStatus(game, false);
             }
         }
+
 
         private async Task<string> GetLatestVersionFromSite(string gameDownloadUrl)
         {
@@ -1488,6 +1514,6 @@ namespace FitGirlStore
 
             return string.Empty;
         }
-                      
+
     }
 }
