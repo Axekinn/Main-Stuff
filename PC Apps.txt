@@ -1,10 +1,15 @@
 # App Name, Url
 
+
+# Apps:
+
 "Radmin VPN", "https://www.radmin-vpn.com/"
 "Kodi", "https://kodi.tv/download/windows/"
 "Epic Games Launcher", "https://store.epicgames.com/en-US/"
 "Steam", "https://cdn.fastly.steamstatic.com/client/installer/SteamSetup.exe"
 "Discord", "https://discord.com/api/downloads/distributions/app/installers/latest?channel=stable&platform=win&arch=x64"
+
+# Emulators:
 "Pcsx2", "https://github.com/PCSX2/pcsx2/releases"
 "DuckStation", "https://github.com/stenzek/duckstation/releases/preview"
 "Dolphin Emulator", "https://dolphin-emu.org/download/?ref=btn"
