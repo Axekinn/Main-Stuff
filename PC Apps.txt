@@ -9,6 +9,12 @@
 "Steam", "https://cdn.fastly.steamstatic.com/client/installer/SteamSetup.exe"
 "Discord", "https://discord.com/api/downloads/distributions/app/installers/latest?channel=stable&platform=win&arch=x64"
 "Proton VPN", "https://protonvpn.com/download"
+"WinRAR", "https://www.rarlab.com/rar/winrar-x64-711.exe"
+"7-Zip", "https://www.7-zip.org/download.html"
+"Malwarebytes", "https://www.malwarebytes.com/mwb-download/"
+"Ea-App", "https://www.ea.com/ea-app#downloads"
+"Ubisoft Connect", "https://ubi.li/4vxt9"
+"Achievement-Watcher", "https://github.com/xan105/Achievement-Watcher/releases"
 
 # Emulators:
 "Pcsx2", "https://github.com/PCSX2/pcsx2/releases"
