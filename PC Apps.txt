@@ -24,4 +24,10 @@
 "fps4". "https://github.com/red-prig/fpPS4/releases"
 "xemu", "https://github.com/xemu-project/xemu/releases/latest/download/xemu-win-x86_64-release.zip"
 "ppsspp", "https://www.ppsspp.org/download/"
-
+"Lime 3DS", "https://github.com/Lime3DS/lime3ds-archive/releases"
+"Citria", "https://github.com/PabloMK7/citra/releases"
+"Project64", "https://www.pj64-emu.com/public-releases"
+"Cxbx-Reloaded", "https://cxbx-reloaded.co.uk/download"
+"MelonDS", "https://melonds.kuribo64.net/downloads/melonDS-windows-x86_64.zip"
+"DeSmuME", "https://github.com/TASEmulators/desmume/releases"
+"mGBA", "https://github.com/mgba-emu/mgba/releases"
