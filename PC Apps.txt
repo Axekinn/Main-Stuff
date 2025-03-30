@@ -8,6 +8,7 @@
 "Epic Games Launcher", "https://store.epicgames.com/en-US/"
 "Steam", "https://cdn.fastly.steamstatic.com/client/installer/SteamSetup.exe"
 "Discord", "https://discord.com/api/downloads/distributions/app/installers/latest?channel=stable&platform=win&arch=x64"
+"Proton", "https://protonvpn.com/download"
 
 # Emulators:
 "Pcsx2", "https://github.com/PCSX2/pcsx2/releases"
@@ -23,4 +24,4 @@
 "fps4". "https://github.com/red-prig/fpPS4/releases"
 "xemu", "https://github.com/xemu-project/xemu/releases/latest/download/xemu-win-x86_64-release.zip"
 "ppsspp", "https://www.ppsspp.org/download/"
-"Proton", "https://protonvpn.com/download"
+
