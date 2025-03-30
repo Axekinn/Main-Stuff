@@ -15,6 +15,7 @@
 "Ea-App", "https://www.ea.com/ea-app#downloads"
 "Ubisoft Connect", "https://ubi.li/4vxt9"
 "Achievement Watcher", "https://github.com/xan105/Achievement-Watcher/releases"
+"Plutonium", "https://cdn.plutonium.pw/updater/plutonium.exe"
 
 # Emulators:
 "Pcsx2", "https://github.com/PCSX2/pcsx2/releases"
@@ -37,3 +38,92 @@
 "MelonDS", "https://melonds.kuribo64.net/downloads/melonDS-windows-x86_64.zip"
 "DeSmuME", "https://github.com/TASEmulators/desmume/releases"
 "mGBA", "https://github.com/mgba-emu/mgba/releases"
+
+
+# Mod Clients:
+
+# "T7X"
+GameName: "Call of Duty: Black Ops 3" or "Call of Duty: Black Ops III"
+InstallDir: "Games/Call of Duty - Black Ops 3" or "Games/Call of Duty - Black Ops III" or "SteamLibrary/steamapps/common/Call of Duty - Black Ops III"
+Url: "https://git.rimmyscorner.com/Rim/t7x/releases"
+
+Action Name 1: "T7X: Main"
+Exe: "T7x.exe"
+Arguments: "-launch"
+Play Action: True
+
+Action Name 2: "T7X: ZM Local"
+Exe: "T7x.exe"
+Arguments: "-cpmode +connect 127.0.0.1"
+Play Action: True
+
+Action Name 3: "T7X: MP Local"
+Exe: "iw4x.exe"
+Arguments: "-multiplayer +connect 127.0.0.1"
+Play Action: True
+
+# "IW4X"
+GameName: "Call of Duty: Modern Warfare 2"
+InstallDir: "Games/Call of Duty - Modern Warfare 2" or "SteamLibrary\steamapps\common\Call of Duty - Modern Warfare 2"
+Url: "https://github.com/mxve/alterware-launcher/releases/latest/download/alterware-launcher.exe"
+
+Action Name 1: "IW4X: Update"
+Exe: "Alterware.exe"
+Arguments: 
+Play Action: True
+
+Action Name 2: "IW4X: SinglePlayer"
+Exe: "iw4x.exe"
+Arguments: "-singleplayer"
+Play Action: True
+
+Action Name 2: "IW4X: Multiplayer"
+Exe: "iw4x.exe"
+Arguments: "-multiplayer"
+Play Action: True
+
+Action Name 3: "IW4X Local Host"
+Exe: "iw4x.exe"
+Arguments: "-multiplayer +connect 127.0.0.1"
+Play Action: True
+
+# "IW6X"
+GameName: "Call of Duty: Ghost"
+InstallDir: "Games/Call of Duty - Ghost" or "SteamLibrary\steamapps\common\Call of Duty - Modern Warfare 2"
+Url: "https://github.com/mxve/alterware-launcher/releases/latest/download/alterware-launcher.exe"
+
+Action Name 1: "IW6-mod: Update"
+Exe: "Alterware.exe"
+Arguments: 
+Play Action: True
+
+Action Name 2: "IW6X: Multiplayer"
+Exe: "iw6-mod.exe"
+Arguments: "-multiplayer"
+Play Action: True
+
+Action Name 3: "IW6X Local Host"
+Exe: "iw6-mod.exe"
+Arguments: "-multiplayer +connect 127.0.0.1"
+Play Action: True
+
+# "S1-Mod"
+GameName: "Call of Duty: Ghost"
+InstallDir: "Games/Call of Duty - Ghost" or "SteamLibrary\steamapps\common\Call of Duty - Modern Warfare 2"
+Url: "https://github.com/mxve/alterware-launcher/releases/latest/download/alterware-launcher.exe"
+
+Action Name 1: "S1-Mod: Update"
+Exe: "Alterware.exe"
+Arguments:
+Play Action: True
+
+Action Name 2: "s1-mod: Multiplayer"
+Exe: "s1-mod.exe"
+Arguments: "-multiplayer"
+Play Action: True
+
+Action Name 3: "s1-mod Local Host"
+Exe: "s1-mod.exe"
+Arguments: "-multiplayer +connect 127.0.0.1"
+Play Action: True
+
