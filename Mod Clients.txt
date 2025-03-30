@@ -1,0 +1,23 @@
+// Each line will be set as follows...
+# Mod Client Name
+"Game Name"
+"Action #x"
+"exe name"
+"Arguments
+// End of Example//
+
+
+# IW4X:
+GameName: "Call of Duty: Modern Warfare 2"
+Action #1: "IW4X: Update"
+Exe Name: "alterware.exe"
+Arguments: 
+
+Action #2: "IW4X: MP"
+Exe Name: "iw4x.exr"
+Arguments: "-multiplayer"
+
+Action #3: "IW4X Join: MP Local
+Exe Name: "iw4x.exe"
+Arguments: "-multiplayer +Connect 127.0.0.1"
+
