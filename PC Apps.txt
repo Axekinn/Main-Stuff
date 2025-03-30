@@ -23,3 +23,4 @@
 "fps4". "https://github.com/red-prig/fpPS4/releases"
 "xemu", "https://github.com/xemu-project/xemu/releases/latest/download/xemu-win-x86_64-release.zip"
 "ppsspp", "https://www.ppsspp.org/download/"
+"Proton", "https://protonvpn.com/download"
