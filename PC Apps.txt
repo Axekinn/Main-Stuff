@@ -8,7 +8,7 @@
 "Epic Games Launcher", "https://store.epicgames.com/en-US/"
 "Steam", "https://cdn.fastly.steamstatic.com/client/installer/SteamSetup.exe"
 "Discord", "https://discord.com/api/downloads/distributions/app/installers/latest?channel=stable&platform=win&arch=x64"
-"Proton", "https://protonvpn.com/download"
+"Proton VPN", "https://protonvpn.com/download"
 
 # Emulators:
 "Pcsx2", "https://github.com/PCSX2/pcsx2/releases"
