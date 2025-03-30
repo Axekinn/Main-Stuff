@@ -1,4 +1,4 @@
-﻿using Playnite.SDK;
+using Playnite.SDK;
 using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
@@ -46,7 +46,6 @@ namespace AppStore
             }
 
             var apps = GetAppsFromTextFile().Result;
-            var modClients = GetModClientsFromTextFile().Result;
 
             var newApps = new List<GameMetadata>();
 
@@ -131,9 +130,6 @@ namespace AppStore
                 }
             }
 
-            // Add mod clients
-            AddModClients(modClients);
-
             return newApps; // Return all apps to add
         }
 
@@ -183,171 +179,6 @@ namespace AppStore
             }
 
             return apps;
-        }
-
-        private async Task<List<ModClient>> GetModClientsFromTextFile()
-        {
-            var modClients = new List<ModClient>();
-
-            try
-            {
-                using (HttpClient client = new HttpClient())
-                {
-                    // URL to the text file on GitHub
-                    var fileUrl = "https://raw.githubusercontent.com/Koriebonx98/Main-Stuff/main/PC%20Apps.txt";
-                    var response = await client.GetStringAsync(fileUrl);
-
-                    if (string.IsNullOrEmpty(response))
-                    {
-                        logger.Warn($"Failed to fetch content from {fileUrl}");
-                        return modClients;
-                    }
-
-                    // Split the response into lines
-                    var lines = response.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                    var readingModClient = false;
-                    ModClient currentModClient = null;
-
-                    foreach (var line in lines)
-                    {
-                        // Skip header and empty lines
-                        if (line.StartsWith("#") || string.IsNullOrWhiteSpace(line))
-                        {
-                            continue;
-                        }
-
-                        if (line.StartsWith("GameName:"))
-                        {
-                            readingModClient = true;
-                            currentModClient = new ModClient
-                            {
-                                GameName = line.Replace("GameName:", "").Trim().Trim('"')
-                            };
-                        }
-                        else if (line.StartsWith("InstallDir:") && readingModClient)
-                        {
-                            currentModClient.InstallDirs = line.Replace("InstallDir:", "").Trim().Trim('"').Split(new[] { " or " }, StringSplitOptions.None);
-                        }
-                        else if (line.StartsWith("Url:") && readingModClient)
-                        {
-                            currentModClient.Url = line.Replace("Url:", "").Trim().Trim('"');
-                        }
-                        else if (line.StartsWith("Action Name") && readingModClient)
-                        {
-                            var action = new ModClientAction
-                            {
-                                Name = line.Split(':')[1].Trim().Trim('"')
-                            };
-
-                            // Read next lines for Exe, Arguments, and Play Action
-                            for (int i = Array.IndexOf(lines, line) + 1; i < lines.Length; i++)
-                            {
-                                var actionLine = lines[i];
-                                if (actionLine.StartsWith("Exe:"))
-                                {
-                                    action.Exe = actionLine.Replace("Exe:", "").Trim().Trim('"');
-                                }
-                                else if (actionLine.StartsWith("Arguments:"))
-                                {
-                                    action.Arguments = actionLine.Replace("Arguments:", "").Trim().Trim('"');
-                                }
-                                else if (actionLine.StartsWith("Play Action:"))
-                                {
-                                    action.IsPrimary = actionLine.Replace("Play Action:", "").Trim().Trim('"').Equals("True", StringComparison.OrdinalIgnoreCase);
-                                    currentModClient.Actions.Add(action);
-                                    break;
-                                }
-                            }
-                        }
-                        else if (line.StartsWith("GameName:") && readingModClient)
-                        {
-                            readingModClient = false;
-                            modClients.Add(currentModClient);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.Error($"Error occurred while fetching mod clients from text file: {ex.Message}");
-            }
-
-            return modClients;
-        }
-
-        private void AddModClients(List<ModClient> modClients)
-        {
-            foreach (var modClient in modClients)
-            {
-                logger.Info($"Processing mod client: {modClient.GameName}");
-
-                // Check for existing game
-                var existingGame = PlayniteApi.Database.Games.FirstOrDefault(g =>
-                    (g.Name.Equals(modClient.GameName, StringComparison.OrdinalIgnoreCase) || g.Name.Equals(modClient.GameNameAlt, StringComparison.OrdinalIgnoreCase)) &&
-                    g.Platforms.Any(p => p.Name.Equals("PC (Windows)", StringComparison.OrdinalIgnoreCase)));
-
-                if (existingGame != null)
-                {
-                    logger.Info($"Found existing game for mod client '{modClient.GameName}': {existingGame.Name}");
-
-                    if (existingGame.IsInstalled)
-                    {
-                        logger.Info($"Game '{existingGame.Name}' is installed. Using install directory '{existingGame.InstallDirectory}'.");
-
-                        // Update App Store app install directory and actions
-                        var appStoreGame = PlayniteApi.Database.Games.FirstOrDefault(g => g.PluginId == Id && g.GameId == modClient.GameName.ToLower().Replace(" ", "_"));
-                        if (appStoreGame != null)
-                        {
-                            logger.Info($"Updating install directory for App Store app '{appStoreGame.Name}' to '{existingGame.InstallDirectory}'.");
-
-                            appStoreGame.InstallDirectory = existingGame.InstallDirectory;
-                            appStoreGame.GameActions.Clear();
-
-                            foreach (var action in modClient.Actions)
-                            {
-                                appStoreGame.GameActions.Add(new GameAction
-                                {
-                                    Type = GameActionType.File,
-                                    Path = action.Exe.Replace(existingGame.InstallDirectory, "{InstallDir}"),
-                                    Arguments = action.Arguments,
-                                    WorkingDir = "{InstallDir}",
-                                    Name = action.Name,
-
-                                });
-                            }
-
-                            PlayniteApi.Database.Games.Update(appStoreGame);
-                        }
-
-                        // Add actions to the existing game in Playnite
-                        foreach (var action in modClient.Actions)
-                        {
-                            if (!existingGame.GameActions.Any(a => a.Name.Equals(action.Name, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                existingGame.GameActions.Add(new GameAction
-                                {
-                                    Type = GameActionType.File,
-                                    Path = action.Exe.Replace(existingGame.InstallDirectory, "{InstallDir}"),
-                                    Arguments = action.Arguments,
-                                    WorkingDir = "{InstallDir}",
-                                    Name = action.Name,
-                                });
-                                logger.Info($"Added action '{action.Name}' for '{existingGame.Name}': {action.Exe}");
-                            }
-                            else
-                            {
-                                logger.Info($"Action '{action.Name}' already exists for '{existingGame.Name}', skipping.");
-                            }
-                        }
-
-                        PlayniteApi.Database.Games.Update(existingGame);
-                    }
-                }
-                else
-                {
-                    logger.Info($"No existing game found for mod client '{modClient.GameName}'.");
-                }
-            }
         }
 
         private List<string> GetExePathsForApp(string appName, out string installDir)
@@ -546,33 +377,24 @@ namespace AppStore
 
         private bool IsEmulator(string appName)
         {
-            var emulators = new[] { "Dolphin Emulator", "Xenia", "Xenia Canary" };
-            return emulators.Contains(appName, StringComparer.OrdinalIgnoreCase);
+            // You can expand this method to include more sophisticated checks if needed
+            return appName.Equals("Pcsx2", StringComparison.OrdinalIgnoreCase) ||
+                   appName.Equals("DuckStation", StringComparison.OrdinalIgnoreCase) ||
+                   appName.Equals("Dolphin Emulator", StringComparison.OrdinalIgnoreCase) ||
+                   appName.Equals("Xenia", StringComparison.OrdinalIgnoreCase) ||
+                   appName.Equals("Xenia Canary", StringComparison.OrdinalIgnoreCase) ||
+                   appName.Equals("RPCS3", StringComparison.OrdinalIgnoreCase) ||
+                   appName.Equals("Ryujinx Canary", StringComparison.OrdinalIgnoreCase);
         }
 
-
-
-        public class ModClient
+        public override ISettings GetSettings(bool firstRunSettings)
         {
-            public string GameName { get; set; }
-            public string GameNameAlt { get; set; }
-            public string Url { get; set; }
-            public string[] InstallDirs { get; set; }
-            public List<ModClientAction> Actions { get; set; }
-
-            public ModClient()
-            {
-                Actions = new List<ModClientAction>();
-            }
+            return Settings;
         }
 
-        public class ModClientAction
+        public override UserControl GetSettingsView(bool firstRunSettings)
         {
-            public string Name { get; set; }
-            public string Exe { get; set; }
-            public string Arguments { get; set; }
-            public bool IsPrimary { get; set; }
+            return new AppStoreSettingsView();
         }
     }
-
 }
