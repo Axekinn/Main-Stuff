@@ -12,7 +12,7 @@
 # Emulators:
 "Pcsx2", "https://github.com/PCSX2/pcsx2/releases"
 "DuckStation", "https://github.com/stenzek/duckstation/releases/preview"
-"Dolphin", "https://dolphin-emu.org/download/?ref=btn"
+"Dolphin Emulator", "https://dolphin-emu.org/download/?ref=btn"
 "Xenia Canary", "https://github.com/xenia-canary/xenia-canary/releases"
 "Xenia", "https://github.com/xenia-project/release-builds-windows/releases/"
 "RPCS3", "https://github.com/RPCS3/rpcs3/releases"
