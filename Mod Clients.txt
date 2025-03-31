@@ -74,7 +74,7 @@ Exe Name: "s1-mod.exe"
 Arguments: "-survival +Connect 127.0.0.1"
 
 # "H1 mod"
-Game Name: "Call of Duty: Modern Warfare Remastered"
+GameName: "Call of Duty: Modern Warfare Remastered"
 
 Action #1: "H1: SP"
 Exe Name: "h1-mod.exe"
