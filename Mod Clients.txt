@@ -10,7 +10,7 @@
 # IW4X:
 GameName: "Call of Duty: Modern Warfare 2"
 Action #1: "IW4X: Update"
-Exe Name: "alterware.exe"
+Exe Name: "alterware-launcher.exe"
 Arguments: 
 
 Action #2: "IW4X: MP"
