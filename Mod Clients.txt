@@ -14,7 +14,7 @@ Exe Name: "alterware.exe"
 Arguments: 
 
 Action #2: "IW4X: MP"
-Exe Name: "iw4x.exr"
+Exe Name: "iw4x.exe"
 Arguments: "-multiplayer"
 
 Action #3: "IW4X Join: MP Local
