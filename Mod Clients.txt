@@ -22,3 +22,17 @@ Action #3: "IW4X Join: MP Local"
 Exe Name: "iw4x.exe"
 Arguments: "-multiplayer +Connect 127.0.0.1"
 
+# IW6-mod:
+GameName: "Call of Duty: Ghost"
+
+Action #1: "IW6-mod: Update"
+Exe Name: "alterware-launcher.exe"
+Arguments: 
+
+Action #2: "IW6-mod: MP"
+Exe Name: "iw6-mod.exe"
+Arguments: "-multiplayer"
+
+Action #3: "IW6-mod Join: MP Local"
+Exe Name: "iw6-mod.exe"
+Arguments: "-multiplayer +Connect 127.0.0.1"
