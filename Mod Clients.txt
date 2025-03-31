@@ -76,10 +76,15 @@ Arguments: "-survival +Connect 127.0.0.1"
 # H1 mod:
 GameName: "Call of Duty: Modern Warfare Remastered"
 
-Action #1: "H1: SP"
+Action #1: "H1-mod: SP"
 Exe Name: "h1-mod.exe"
 Arguments: "-singleplayer"
 
-Action #2: "H1: MP"
+Action #2: "H1-mod: MP"
 Exe Name: "h1-mod.exe"
 Arguments: "-multiplayer"
+
+Action #3: "h1-mod Join: MP Local"
+Exe Name: "h1-mod.exe"
+Arguments: "-multiplayer +Connect 127.0.0.1"
+
