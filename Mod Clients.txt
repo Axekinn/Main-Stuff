@@ -49,27 +49,27 @@ Action #2: "s1-mod: MP"
 Exe Name: "s1-mod.exe"
 Arguments: "-multiplayer"
 
-Action #2: "s1-mod: SP"
+Action #3: "s1-mod: SP"
 Exe Name: "s1-mod.exe"
 Arguments: "-singleplayer"
 
-Action #2: "s1-mod: zm"
+Action #4: "s1-mod: zm"
 Exe Name: "s1-mod.exe"
 Arguments: "-zombies"
 
-Action #3: "s1-mod: Survival"
+Action #5: "s1-mod: Survival"
 Exe Name: "s1-mod.exe"
 Arguments: "-survival"
 
-Action #4: "s1-mod Join: MP Local"
+Action #6: "s1-mod Join: MP Local"
 Exe Name: "s1-mod.exe"
 Arguments: "-multiplayer +Connect 127.0.0.1"
 
-Action #5: "s1-mod Join: ZM Local"
+Action #7: "s1-mod Join: ZM Local"
 Exe Name: "s1-mod.exe"
 Arguments: "-zombies +Connect 127.0.0.1"
 
-Action #6: "s1-mod Join: Survival Local"
+Action #8: "s1-mod Join: Survival Local"
 Exe Name: "s1-mod.exe"
 Arguments: "-survival +Connect 127.0.0.1"
 
