@@ -57,7 +57,7 @@ Action #2: "s1-mod: zm"
 Exe Name: "s1-mod.exe"
 Arguments: "-zombiesMode"
 
-Action #3: "Is1-mod Join: MP Local"
+Action #3: "s1-mod Join: MP Local"
 Exe Name: "s1-mod.exe"
 Arguments: "-multiplayer +Connect 127.0.0.1"
 
