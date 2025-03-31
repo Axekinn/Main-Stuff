@@ -36,3 +36,28 @@ Arguments: "-multiplayer"
 Action #3: "IW6-mod Join: MP Local"
 Exe Name: "iw6-mod.exe"
 Arguments: "-multiplayer +Connect 127.0.0.1"
+
+
+# S1-mod:
+GameName: "Call of Duty: Advanced Warfare"
+
+Action #1: "s1-mod: Update"
+Exe Name: "alterware-launcher.exe"
+Arguments: 
+
+Action #2: "s1-mod: MP"
+Exe Name: "s1-mod.exe"
+Arguments: "-multiplayer"
+
+Action #2: "s1-mod: SP"
+Exe Name: "s1-mod.exe"
+Arguments: "-singleplayer"
+
+Action #2: "s1-mod: zm"
+Exe Name: "s1-mod.exe"
+Arguments: "-zombiesMode"
+
+Action #3: "Is1-mod Join: MP Local"
+Exe Name: "s1-mod.exe"
+Arguments: "-multiplayer +Connect 127.0.0.1"
+
