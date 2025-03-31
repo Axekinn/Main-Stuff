@@ -23,7 +23,7 @@ Exe Name: "iw4x.exe"
 Arguments: "-multiplayer +Connect 127.0.0.1"
 
 # IW6-mod:
-GameName: "Call of Duty: Ghost"
+GameName: "Call of Duty: Ghosts"
 
 Action #1: "IW6-mod: Update"
 Exe Name: "alterware-launcher.exe"
