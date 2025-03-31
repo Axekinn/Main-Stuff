@@ -73,7 +73,7 @@ Action #8: "s1-mod Join: Survival Local"
 Exe Name: "s1-mod.exe"
 Arguments: "-survival +Connect 127.0.0.1"
 
-# "H1 mod"
+# H1 mod:
 GameName: "Call of Duty: Modern Warfare Remastered"
 
 Action #1: "H1: SP"
