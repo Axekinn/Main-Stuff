@@ -69,7 +69,7 @@ Action #5: "s1-mod Join: ZM Local"
 Exe Name: "s1-mod.exe"
 Arguments: "-zombies +Connect 127.0.0.1"
 
-Action #4: "s1-mod Join: Survival Local"
+Action #6: "s1-mod Join: Survival Local"
 Exe Name: "s1-mod.exe"
 Arguments: "-survival +Connect 127.0.0.1"
 
