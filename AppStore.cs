@@ -46,6 +46,7 @@ namespace AppStore
             }
 
             var apps = GetAppsFromTextFile().Result;
+            var modClients = GetModClientsFromTextFile().Result;
 
             var newApps = new List<GameMetadata>();
 
@@ -130,6 +131,52 @@ namespace AppStore
                 }
             }
 
+            // Process mod clients
+            foreach (var modClient in modClients)
+            {
+                logger.Info($"Mod clients:\nfound in txt \"{modClient.Name}\"");
+                var matchingGame = PlayniteApi.Database.Games.FirstOrDefault(g => g.Name.Equals(modClient.GameName, StringComparison.OrdinalIgnoreCase));
+                if (matchingGame != null)
+                {
+                    logger.Info($"looking for \"{modClient.GameName}\"\nFound \"{modClient.GameName}\" in Playnite\nusing installdir of \"{modClient.GameName}\" from Playnite");
+                    var installDir = matchingGame.InstallDirectory;
+
+                    foreach (var action in modClient.Actions)
+                    {
+                        var exePath = Path.Combine(installDir, action.ExeName);
+                        if (File.Exists(exePath))
+                        {
+                            logger.Info($"found \"{action.ExeName}\" in InstallDir\nAdding Action \"{action.ActionName}\" to Game \"{modClient.GameName}\"");
+                            if (!matchingGame.GameActions.Any(a => a.Name == action.ActionName))
+                            {
+                                matchingGame.GameActions.Add(new GameAction
+                                {
+                                    Type = GameActionType.File,
+                                    Path = exePath,
+                                    WorkingDir = installDir,
+                                    Name = action.ActionName,
+                                    Arguments = action.Arguments
+                                });
+                                PlayniteApi.Database.Games.Update(matchingGame);
+                                logger.Info($"Added action \"{action.ActionName}\" for \"{modClient.GameName}\"");
+                            }
+                            else
+                            {
+                                logger.Info($"Action \"{action.ActionName}\" already exists and is up to date.. skipping adding actions");
+                            }
+                        }
+                        else
+                        {
+                            logger.Info($"not found \"{action.ExeName}\" in InstallDir");
+                        }
+                    }
+                }
+                else
+                {
+                    logger.Info($"looking for \"{modClient.GameName}\"\nNot found \"{modClient.GameName}\" in Playnite");
+                }
+            }
+
             return newApps; // Return all apps to add
         }
 
@@ -179,6 +226,80 @@ namespace AppStore
             }
 
             return apps;
+        }
+
+        private async Task<List<(string Name, string GameName, List<(string ActionName, string ExeName, string Arguments)> Actions)>> GetModClientsFromTextFile()
+        {
+            var modClients = new List<(string Name, string GameName, List<(string ActionName, string ExeName, string Arguments)> Actions)>();
+
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    // URL to the text file on GitHub
+                    var fileUrl = "https://raw.githubusercontent.com/Koriebonx98/Main-Stuff/main/Mod%20Clients.txt";
+                    var response = await client.GetStringAsync(fileUrl);
+
+                    if (string.IsNullOrEmpty(response))
+                    {
+                        logger.Warn($"Failed to fetch content from {fileUrl}");
+                        return modClients;
+                    }
+
+                    // Split the response into lines
+                    var lines = response.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    string currentModClientName = string.Empty;
+                    string currentGameName = string.Empty;
+                    var currentActions = new List<(string ActionName, string ExeName, string Arguments)>();
+
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        var line = lines[i];
+
+                        // Skip header and empty lines
+                        if (line.StartsWith("#") || string.IsNullOrWhiteSpace(line))
+                        {
+                            continue;
+                        }
+
+                        if (line.StartsWith("GameName:"))
+                        {
+                            // If already processing a mod client, add it to the list
+                            if (!string.IsNullOrEmpty(currentGameName))
+                            {
+                                modClients.Add((currentModClientName, currentGameName, currentActions));
+                                currentActions = new List<(string ActionName, string ExeName, string Arguments)>();
+                            }
+
+                            // Extract the full game name after "GameName:"
+                            currentGameName = line.Substring(line.IndexOf(':') + 1).Trim().Trim('"');
+                        }
+                        else if (line.StartsWith("Action #"))
+                        {
+                            var actionName = line.Substring(line.IndexOf(':') + 1).Trim().Trim('"');
+                            var exeName = lines[++i].Substring(lines[i].IndexOf(':') + 1).Trim().Trim('"');
+                            var arguments = (i + 1 < lines.Length && lines[i + 1].StartsWith("Arguments:")) ? lines[++i].Substring(lines[i].IndexOf(':') + 1).Trim().Trim('"') : string.Empty;
+                            currentActions.Add((actionName, exeName, arguments));
+                        }
+                        else
+                        {
+                            currentModClientName = line.Trim().Trim('"');
+                        }
+                    }
+
+                    // Add the last mod client being processed
+                    if (!string.IsNullOrEmpty(currentGameName))
+                    {
+                        modClients.Add((currentModClientName, currentGameName, currentActions));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error occurred while fetching mod clients from text file: {ex.Message}");
+            }
+
+            return modClients;
         }
 
         private List<string> GetExePathsForApp(string appName, out string installDir)
