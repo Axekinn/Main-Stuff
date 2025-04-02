@@ -88,3 +88,13 @@ Action #3: "h1-mod Join: MP Local"
 Exe Name: "h1-mod.exe"
 Arguments: "-multiplayer +Connect 127.0.0.1"
 
+# IW7-mod:
+GamName: "Call of Duty: Infinite Warfare"
+
+Action #1: "iw7-mod: SP"
+Exe Name: "iw7-mod.exe"
+Arguments: "-nosteam -singleplayer"
+
+Action #2: "iw7-mod: mP"
+Exe Name: "iw7-mod.exe"
+Arguments: "-nosteam -multiplayer"
