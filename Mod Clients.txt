@@ -89,7 +89,7 @@ Exe Name: "h1-mod.exe"
 Arguments: "-multiplayer +Connect 127.0.0.1"
 
 # IW7-mod:
-GamName: "Call of Duty: Infinite Warfare"
+GameName: "Call of Duty: Infinite Warfare"
 
 Action #1: "iw7-mod: SP"
 Exe Name: "iw7-mod.exe"
