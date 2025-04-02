@@ -44,4 +44,4 @@
 "IW6-mod", "https://github.com/mxve/alterware-launcher/releases/latest/download/alterware-launcher.exe"
 "S1-Mod", "https://github.com/mxve/alterware-launcher/releases/latest/download/alterware-launcher.exe"
 "h1-mod", "https://github.com/auroramod/h1-mod/releases" 
-"iw7-mod", "https://github.com/auroramod/iw7-mod"
+"IW7-mod", "https://github.com/auroramod/iw7-mod"
