@@ -43,6 +43,7 @@ namespace FitGirlStore
             var gameEntries = new List<GameMetadata>();
             var uniqueGames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            // Get the latest page number from the site
             int latestPage = await GetLatestPageNumber();
 
             for (int page = 1; page <= latestPage; page++)
@@ -61,7 +62,7 @@ namespace FitGirlStore
                     if (string.IsNullOrWhiteSpace(href) || string.IsNullOrWhiteSpace(text) || !IsValidGameLink(href))
                         continue;
 
-                    string version = ExtractVersionNumber(text);
+                    string siteVersion = ExtractVersionNumber(text); // Get the version from the site
                     string cleanName = CleanGameName(text);
 
                     if (string.IsNullOrEmpty(cleanName))
@@ -71,7 +72,7 @@ namespace FitGirlStore
 
                     if (!string.IsNullOrEmpty(cleanName) && !href.Contains("page0="))
                     {
-                        var gameKey = $"{cleanName}|{version}";
+                        var gameKey = $"{cleanName}|{siteVersion}";
                         if (uniqueGames.Contains(gameKey))
                             continue;
 
@@ -83,11 +84,16 @@ namespace FitGirlStore
 
                         if (!string.IsNullOrEmpty(localVersion))
                         {
-                            if (IsNewerVersion(version, localVersion))
+                            // Use your IsNewerVersion method to compare versions
+                            if (IsNewerVersion(localVersion, siteVersion))
                             {
-                                isUpdateReady = true;
+                                isUpdateReady = true; // Site version is newer, mark as needing update
                             }
-                            version = localVersion;
+                        }
+                        else
+                        {
+                            // No local version found, use site's version
+                            localVersion = siteVersion;
                         }
 
                         var gameMetadata = new GameMetadata
@@ -104,20 +110,29 @@ namespace FitGirlStore
                             IsPlayAction = false
                         }
                     },
-                            Version = version,
+                            Version = localVersion, // Use either local or site version
                             IsInstalled = false
                         };
 
-                        LogGameInfo(cleanName, version);
+                        LogGameInfo(cleanName, localVersion);
 
                         var existingGame = PlayniteApi.Database.Games.FirstOrDefault(g => g.Name.Equals(cleanName, StringComparison.OrdinalIgnoreCase));
                         if (existingGame != null)
                         {
                             LogPlayniteGameInfo(existingGame.Name, existingGame.Version);
-                            if (IsNewerVersion(existingGame.Version, version))
+
+                            // Add "[Update Ready]" if site version is newer
+                            if (isUpdateReady)
                             {
-                                AddUpdateReadyFeature(existingGame);
+                                AddUpdateReadyFeature(existingGame); // Call the appropriate AddUpdateReadyFeature method
                                 LogUpdateReadyAdded();
+                            }
+
+                            // If no local version exists, update the existing game's version
+                            if (string.IsNullOrEmpty(existingGame.Version))
+                            {
+                                existingGame.Version = localVersion;
+                                PlayniteApi.Database.Games.Update(existingGame);
                             }
 
                             AddFeatures(existingGame, text);
@@ -126,15 +141,11 @@ namespace FitGirlStore
                         {
                             LogPlayniteGameInfo(cleanName, "Not in Playnite");
 
+                            // Only add to game entries if it's not already processed
                             if (!IsDuplicate(gameMetadata))
                             {
-                                gameEntries.Add(gameMetadata);
+                                gameEntries.Add(gameMetadata); // Add new game as a metadata entry
                             }
-                        }
-
-                        if (isUpdateReady && existingGame != null)
-                        {
-                            AddUpdateReadyFeature(cleanName, version);
                         }
                     }
                 }
@@ -142,6 +153,9 @@ namespace FitGirlStore
 
             return gameEntries;
         }
+
+
+
 
         private string GetLocalVersion(string gameName)
         {
@@ -338,16 +352,7 @@ namespace FitGirlStore
             }
         }
 
-        private void AddUpdateReadyFeature(string gameName, string version)
-        {
-            var existingGame = PlayniteApi.Database.Games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
-            if (existingGame != null)
-            {
-                AddUpdateReadyFeature(existingGame);
-                existingGame.Version = version;
-                PlayniteApi.Database.Games.Update(existingGame);
-            }
-        }
+        
 
         private void LogGameInfo(string gameName, string version)
         {
@@ -500,7 +505,7 @@ namespace FitGirlStore
         "All DLCs","All DLC","OST Bundle", "HotFix", "HotFix 1", "Multiplayer","All previous DLCs", "DLCs", "+ DLCs","DLC",
         "+ DLC", "+ Update", "+ Fix", "+ Soundtrack", "+ Online",
         "+ Local Multiplayer", "- Online", "+ Online Multiplayer", "+ Online CO-OP",
-        "+ Local/Online Multiplayer", "+ Update", "+ DLC + Multiplayer", "- Game & Soundtrack Bundle", "+ CrackFix"
+        "+ Local/Online Multiplayer", "+ Update", "+ DLC + Multiplayer", "- Game & Soundtrack Bundle", "+ CrackFix", "+ 36 DLCs"
             };
 
             foreach (var phrase in phrasesToRemove)
@@ -792,7 +797,7 @@ namespace FitGirlStore
                 }
             }
 
-            // Step 4: Check "Repacks" folder, add new games as uninstalled or update existing ones, and add "[Install Ready]" feature
+            // Step 4: Check "Repacks" folder, add new games as uninstalled, and add "[Install Ready]" feature
             foreach (var drive in drives)
             {
                 var repacksFolderPath = Path.Combine(drive.RootDirectory.FullName, "Repacks");
@@ -803,31 +808,17 @@ namespace FitGirlStore
                         var folderName = Path.GetFileName(folder);
                         var gameName = ConvertHyphenToColon(CleanGameName(SanitizePath(folderName)));
                         var existingGame = PlayniteApi.Database.Games.FirstOrDefault(g => g.PluginId == Id && g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
-                        var versionFiles = Directory.GetFiles(folder, "*.txt")
-                                                    .Where(file => Regex.IsMatch(Path.GetFileNameWithoutExtension(file), @"^v\d+(\.\d+)*$"));
 
                         if (existingGame != null)
                         {
-                            // Update existing game
-                            existingGame.IsInstalled = false;
-                            existingGame.InstallDirectory = null;
-
-                            if (versionFiles.Any())
-                            {
-                                var localVersion = Path.GetFileNameWithoutExtension(versionFiles.First());
-                                existingGame.Version = localVersion;
-                            }
-
-                            // Add "[Install Ready]" feature to the game
+                            // Existing game: only add "[Install Ready]" feature, don't change InstallDirectory or IsInstalled
                             AddInstallReadyFeature(existingGame);
-
-                            API.Instance.Database.Games.Update(existingGame);
-                            uniqueGames.Add(existingGame.Name);
+                            PlayniteApi.Database.Games.Update(existingGame);
                         }
                         else
                         {
-                            // Add as a new game if it doesn't exist
-                            var gameMetadata = new GameMetadata()
+                            // New game: add as uninstalled and add "[Install Ready]" feature
+                            var gameMetadata = new GameMetadata
                             {
                                 Name = gameName,
                                 GameId = gameName.ToLower(),
@@ -837,24 +828,18 @@ namespace FitGirlStore
                                 InstallDirectory = null,
                                 Icon = new MetadataFile(Path.Combine(folder, "icon.png")),
                                 BackgroundImage = new MetadataFile(Path.Combine(folder, "background.png")),
-                                Version = ExtractVersionNumber(folderName),
+                                Version = ExtractVersionNumber(folderName)
                             };
-
-                            if (versionFiles.Any())
-                            {
-                                var localVersion = Path.GetFileNameWithoutExtension(versionFiles.First());
-                                gameMetadata.Version = localVersion;
-                            }
 
                             // Add "[Install Ready]" feature to the new game
                             AddInstallReadyFeature(gameMetadata);
 
                             games.Add(gameMetadata);
-                            uniqueGames.Add(gameMetadata.Name);
                         }
                     }
                 }
             }
+
 
 
             return games;
@@ -1141,7 +1126,6 @@ namespace FitGirlStore
             }
         }
 
-
         private async Task<string> GetLatestVersionFromSite(string gameDownloadUrl)
         {
             using (var httpClient = new HttpClient())
@@ -1334,10 +1318,19 @@ namespace FitGirlStore
                 Name = "Install using setup.exe";
             }
 
-            public override void Install(InstallActionArgs args)
+            public override async void Install(InstallActionArgs args)
             {
-                pluginInstance.GameInstaller(Game);
+                try
+                {
+                    await pluginInstance.GameInstaller(Game);
+                }
+                catch (Exception ex)
+                {
+                    // Handle the exception appropriately
+                    logger.Error(ex, "Error occurred during game installation.");
+                }
             }
+
         }
 
         public class LocalUninstallController : UninstallController
@@ -1425,24 +1418,31 @@ namespace FitGirlStore
         {
             LogAutoUpdate("Auto Update Started");
 
-            // Fetch features from the database
             var autoUpdateFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Auto Update]", StringComparison.OrdinalIgnoreCase));
             var updateReadyFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Update Ready]", StringComparison.OrdinalIgnoreCase));
 
-            if (autoUpdateFeature == null || updateReadyFeature == null)
+            if (autoUpdateFeature == null)
             {
-                logger.Info("Required features not found. Stopping the scanner.");
+                logger.Info("No '[Auto Update]' feature found in the database.");
                 LogAutoUpdate("Auto Update Stopped");
+                // Set the scanner to go off in 3 hours
+                updateTimer.Change(3 * 60 * 60 * 1000, 3 * 60 * 60 * 1000);
                 return;
             }
 
-            // Wait for library update to complete
-            await Task.Delay(10000); // Adjust delay as needed
+            if (updateReadyFeature == null)
+            {
+                logger.Info("No '[Update Ready]' feature found in the database.");
+                LogAutoUpdate("Auto Update Stopped");
+                // Set the scanner to go off in 3 hours
+                updateTimer.Change(3 * 60 * 60 * 1000, 3 * 60 * 60 * 1000);
+                return;
+            }
 
-            // Filter games with the '[Auto Update]' feature
-            var gamesWithAutoUpdate = PlayniteApi.Database.Games
-                .Where(g => g.FeatureIds != null && g.FeatureIds.Contains(autoUpdateFeature.Id))
-                .ToList();
+            // Wait for the library to be fully updated
+            await Task.Delay(10000); // Adjust the delay as needed
+
+            var gamesWithAutoUpdate = PlayniteApi.Database.Games.Where(g => g.FeatureIds != null && g.FeatureIds.Contains(autoUpdateFeature.Id)).ToList();
 
             foreach (var game in gamesWithAutoUpdate)
             {
@@ -1452,8 +1452,7 @@ namespace FitGirlStore
                     continue;
                 }
 
-                var downloadAction = game.GameActions
-                    .FirstOrDefault(action => action.Name == "Download: Fitgirl" && action.Type == GameActionType.URL);
+                var downloadAction = game.GameActions.FirstOrDefault(action => action.Name == "Download: Fitgirl" && action.Type == GameActionType.URL);
                 if (downloadAction == null)
                 {
                     logger.Info($"No download action found for game: {game.Name}");
@@ -1467,7 +1466,6 @@ namespace FitGirlStore
                     continue;
                 }
 
-                // Check for a newer version
                 string latestVersion = await CheckForNewVersion(gameDownloadUrl);
                 if (!string.IsNullOrEmpty(latestVersion) && IsNewerVersion(game.Version, latestVersion))
                 {
@@ -1477,23 +1475,24 @@ namespace FitGirlStore
                 }
             }
 
-            // Process games with both '[Auto Update]' and '[Update Ready]' features
-            var gamesReadyForInstall = gamesWithAutoUpdate
-                .Where(g => g.FeatureIds.Contains(updateReadyFeature.Id))
-                .ToList();
+            var gamesWithUpdateReady = PlayniteApi.Database.Games.Where(g => g.FeatureIds != null && g.FeatureIds.Contains(updateReadyFeature.Id)).ToList();
 
-            foreach (var game in gamesReadyForInstall)
+            foreach (var game in gamesWithUpdateReady)
             {
+                // Run the game installer for the current game
                 await GameInstaller(game);
 
-                // Wait for the current game to finish installing
+                // Wait for the current game to finish installing before checking the next game
                 while (game.IsInstalling)
                 {
-                    await Task.Delay(1000); // Adjust delay as needed
+                    await Task.Delay(1000); // Adjust the delay as needed
                 }
             }
 
             LogAutoUpdate("Auto Update Stopped");
+
+            // Set the scanner to go off in 3 hours
+            updateTimer.Change(3 * 60 * 60 * 1000, 3 * 60 * 60 * 1000);
         }
 
         private void LogAutoUpdate(string message)
