@@ -1,12 +1,10 @@
-﻿using Playnite.SDK;
+using Playnite.SDK;
 using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -26,51 +24,77 @@ namespace NSWDL
         }
 
         /// <summary>
-        /// Scrapes the website for game entries and returns a list of GameMetadata.
+        /// Scrapes the website for game entries using the same logic as the PowerShell script.
         /// </summary>
         private async Task<List<GameMetadata>> ScrapeSite()
         {
             var gameEntries = new List<GameMetadata>();
-            var uniqueGames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var uniqueUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var pagesScraped = 0;
 
             try
             {
-                logger.Info($"Scraping: {BaseUrl}");
-                string pageContent = await LoadPageContent(BaseUrl);
-                var links = ParseLinks(pageContent);
-
-                foreach (var link in links)
+                string currentUrl = BaseUrl;
+                while (!string.IsNullOrEmpty(currentUrl))
                 {
-                    string href = link.Item1;
-                    string text = link.Item2;
+                    pagesScraped++;
+                    logger.Info($"Scraping page {pagesScraped}: {currentUrl}");
 
-                    if (string.IsNullOrWhiteSpace(href) || string.IsNullOrWhiteSpace(text))
-                        continue;
+                    string pageContent = await LoadPageContent(currentUrl);
 
-                    string cleanName = CleanGameName(text);
-
-                    if (!string.IsNullOrEmpty(cleanName) && uniqueGames.Add(cleanName))
+                    if (string.IsNullOrWhiteSpace(pageContent))
                     {
-                        var gameMetadata = new GameMetadata
-                        {
-                            Name = cleanName,
-                            Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("Nintendo Switch") },
-                            GameActions = new List<GameAction>
-                            {
-                                new GameAction
-                                {
-                                    Name = "Download: NSWDL",
-                                    Type = GameActionType.URL,
-                                    Path = href,
-                                    IsPlayAction = false
-                                }
-                            },
-                            IsInstalled = false
-                        };
-
-                        gameEntries.Add(gameMetadata);
-                        logger.Info($"Game scraped: {cleanName} | Link: {href}");
+                        logger.Warn($"No content found for page {currentUrl}. Ending scraping.");
+                        break;
                     }
+
+                    var links = ParseLinks(pageContent);
+                    logger.Info($"Page {pagesScraped}: Found {links.Count} hyperlinks.");
+
+                    foreach (var link in links)
+                    {
+                        string href = link.Item1;
+                        string text = link.Item2;
+
+                        if (string.IsNullOrWhiteSpace(href) || string.IsNullOrWhiteSpace(text))
+                        {
+                            logger.Warn($"Skipping invalid hyperlink: Text='{text}', URL='{href}'");
+                            continue;
+                        }
+
+                        string cleanName = CleanGameName(text);
+
+                        // Use URL as unique identifier to ensure no games are skipped
+                        if (!string.IsNullOrEmpty(cleanName) && uniqueUrls.Add(href))
+                        {
+                            var gameMetadata = new GameMetadata
+                            {
+                                Name = cleanName,
+                                Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("Nintendo Switch") },
+                                GameActions = new List<GameAction>
+                                {
+                                    new GameAction
+                                    {
+                                        Name = "Download: NSWDL",
+                                        Type = GameActionType.URL,
+                                        Path = href,
+                                        IsPlayAction = false
+                                    }
+                                },
+                                IsInstalled = false
+                            };
+
+                            gameEntries.Add(gameMetadata);
+                            logger.Info($"Game added: Name='{cleanName}', URL='{href}'");
+                        }
+                        else
+                        {
+                            logger.Warn($"Duplicate or invalid game skipped: Name='{cleanName}', URL='{href}'");
+                        }
+                    }
+
+                    // Find the next page URL if pagination exists
+                    currentUrl = GetNextPageUrl(pageContent);
                 }
             }
             catch (Exception ex)
@@ -78,6 +102,8 @@ namespace NSWDL
                 logger.Error($"Error during scraping: {ex.Message}");
             }
 
+            logger.Info($"Total pages scraped: {pagesScraped}");
+            logger.Info($"Total unique games scraped: {gameEntries.Count}");
             return gameEntries;
         }
 
@@ -109,12 +135,13 @@ namespace NSWDL
 
             try
             {
-                var matches = Regex.Matches(pageContent, @"<a\s+href=[""'](https://nswdl\.com/\d+/)[""'].*?>(.*?)</a>");
+                // Regex to capture all hyperlinks and their text
+                var matches = Regex.Matches(pageContent, @"<a\s+href=[""'](https://nswdl\.com/[^""']+)[""'].*?>(.*?)</a>");
                 foreach (Match match in matches)
                 {
                     string href = match.Groups[1].Value;
                     string text = System.Net.WebUtility.HtmlDecode(match.Groups[2].Value); // Decode text
-                    text = Regex.Replace(text, "<.*?>", string.Empty); // Strip any remaining HTML tags
+                    text = Regex.Replace(text, "<.*?>", string.Empty); // Remove any HTML tags inside the text
                     links.Add(new Tuple<string, string>(href, text));
                 }
             }
@@ -150,12 +177,39 @@ namespace NSWDL
         }
 
         /// <summary>
+        /// Extracts the URL for the next page in the pagination, if available.
+        /// </summary>
+        private string GetNextPageUrl(string pageContent)
+        {
+            try
+            {
+                var match = Regex.Match(pageContent, @"<a\s+href=[""'](https://nswdl\.com/switch-posts/page/\d+/?)[""'].*?>Next</a>");
+                if (match.Success)
+                {
+                    string nextPageUrl = match.Groups[1].Value;
+                    logger.Info($"Next page found: {nextPageUrl}");
+                    return nextPageUrl;
+                }
+                else
+                {
+                    logger.Info("No next page found. Scraping complete.");
+                    return null;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Error finding next page URL: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Fetches games from the scraped site and prepares them for the Playnite library.
         /// </summary>
         public override IEnumerable<GameMetadata> GetGames(LibraryGetGamesArgs args)
         {
             var games = new List<GameMetadata>();
-            var scrapedGames = ScrapeSite().GetAwaiter().GetResult(); // Using ScrapeSite method for NSWDL
+            var scrapedGames = ScrapeSite().GetAwaiter().GetResult();
             logger.Info($"Total scraped game entries: {scrapedGames.Count}");
 
             foreach (var game in scrapedGames)
@@ -181,19 +235,19 @@ namespace NSWDL
                         GameId = gameName.ToLower(),
                         Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("Nintendo Switch") },
                         GameActions = new List<GameAction>
-                {
-                    new GameAction
-                    {
-                        Name = "Download: NSWDL",
-                        Type = GameActionType.URL,
-                        Path = game.GameActions.First().Path, // The scraped URL for the game
-                        IsPlayAction = false
-                    }
-                },
+                        {
+                            new GameAction
+                            {
+                                Name = "Download: NSWDL",
+                                Type = GameActionType.URL,
+                                Path = game.GameActions.First().Path,
+                                IsPlayAction = false
+                            }
+                        },
                         IsInstalled = false,
-                        InstallDirectory = null, // Scraped games don't have an install directory
-                        Icon = new MetadataFile(Path.Combine(sanitizedGameName, "icon.png")),
-                        BackgroundImage = new MetadataFile(Path.Combine(sanitizedGameName, "background.png"))
+                        InstallDirectory = null,
+                        Icon = null,
+                        BackgroundImage = null
                     };
 
                     games.Add(gameMetadata);
