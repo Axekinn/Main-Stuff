@@ -23,6 +23,7 @@
 "Xenia", "https://github.com/xenia-project/release-builds-windows/releases/"
 "RPCS3", "https://github.com/RPCS3/rpcs3-binaries-win/releases/download/"
 "Ryubing Canary", "https://github.com/Ryubing/Canary-Releases/releases"
+"Ryujinx", "https://github.com/Ryubing/Canary-Releases/releases"
 "Cemu", "https://github.com/cemu-project/Cemu/releases"
 "BizHawk", "https://github.com/TASEmulators/BizHawk/releases"
 "shadPS4", "https://github.com/shadps4-emu/shadPS4/releases"
