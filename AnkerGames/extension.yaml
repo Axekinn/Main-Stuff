@@ -1,0 +1,7 @@
+﻿Id: AnkerGames_f8356d30-7556-485c-acb9-0bb286e2a3d2
+Name: Custom Library Importer
+Author: John Doe
+Version: 1.0
+Module: AnkerGames.dll
+Type: GameLibrary
+Icon: icon.png

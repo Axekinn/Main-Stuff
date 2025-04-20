@@ -1,0 +1,17 @@
+G:\New\Anker Games\AnkerGames\obj\Debug\AnkerGames.csproj.AssemblyReference.cache
+G:\New\Anker Games\AnkerGames\obj\Debug\App.baml
+G:\New\Anker Games\AnkerGames\obj\Debug\AnkerGamesSettingsView.baml
+G:\New\Anker Games\AnkerGames\obj\Debug\AnkerGamesSettingsView.g.cs
+G:\New\Anker Games\AnkerGames\obj\Debug\AnkerGames_MarkupCompile.cache
+G:\New\Anker Games\AnkerGames\obj\Debug\AnkerGames.g.resources
+G:\New\Anker Games\AnkerGames\obj\Debug\AnkerGames.csproj.CoreCompileInputs.cache
+G:\New\Anker Games\AnkerGames\bin\Debug\extension.yaml
+G:\New\Anker Games\AnkerGames\bin\Debug\icon.png
+G:\New\Anker Games\AnkerGames\bin\Debug\Localization\en_US.xaml
+G:\New\Anker Games\AnkerGames\bin\Debug\AnkerGames.dll
+G:\New\Anker Games\AnkerGames\bin\Debug\AnkerGames.pdb
+G:\New\Anker Games\AnkerGames\bin\Debug\Playnite.SDK.dll
+G:\New\Anker Games\AnkerGames\bin\Debug\Playnite.SDK.xml
+G:\New\Anker Games\AnkerGames\obj\Debug\AnkerGames.csproj.Up2Date
+G:\New\Anker Games\AnkerGames\obj\Debug\AnkerGames.dll
+G:\New\Anker Games\AnkerGames\obj\Debug\AnkerGames.pdb
