@@ -3,6 +3,7 @@ using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net.Http;
 using System.Text.RegularExpressions;
@@ -35,10 +36,10 @@ namespace NSWDL
             foreach (var scrapedGame in scrapedGames)
             {
                 var gameName = scrapedGame.Name;
-                var romPaths = FindGameRoms(gameName);
-
-                // Only process ROMs that match the cleaned scraped game name
                 var cleanedGameName = CleanNameForMatching(gameName);
+                var romPaths = FindGameRoms(cleanedGameName);
+
+                // Match ROMs to the cleaned game name
                 var matchingRoms = romPaths
                     .Where(romPath =>
                         string.Equals(
@@ -50,32 +51,35 @@ namespace NSWDL
                 if (!matchingRoms.Any())
                 {
                     logger.Warn($"No matching ROMs found for game: {gameName} (Cleaned: {cleanedGameName})");
-                    logger.Warn($"Checked ROM paths: {string.Join(", ", romPaths)}");
+                }
+                else
+                {
+                    logger.Info($"Matching ROMs found for game: {gameName} - ROMs: {string.Join(", ", matchingRoms)}");
                 }
 
-                // Create base game metadata
+                // Create the base game metadata
                 var gameMetadata = new GameMetadata
                 {
                     Name = gameName,
-                    GameId = gameName.ToLower(),
+                    GameId = gameName.ToLowerInvariant(),
                     Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("Nintendo Switch") },
                     GameActions = new List<GameAction>
-                    {
-                        // Always add the "Download" action
-                        new GameAction
-                        {
-                            Name = "Download",
-                            Type = GameActionType.URL,
-                            Path = scrapedGame.GameActions.First().Path,
-                            IsPlayAction = false
-                        }
-                    },
+            {
+                // Add the "Download" action
+                new GameAction
+                {
+                    Name = "Download",
+                    Type = GameActionType.URL,
+                    Path = scrapedGame.GameActions.FirstOrDefault()?.Path,
+                    IsPlayAction = false
+                }
+            },
                     IsInstalled = matchingRoms.Any(),
                     Icon = null,
                     BackgroundImage = null
                 };
 
-                // Step 3: Add a single emulator play action for the first matching ROM
+                // Add emulator play action and ROMs if matching ROMs are found
                 if (matchingRoms.Any())
                 {
                     var firstRomPath = matchingRoms.First();
@@ -84,25 +88,25 @@ namespace NSWDL
                     {
                         Name = "Play",
                         Type = GameActionType.Emulator,
-                        EmulatorId = PlayniteApi.Database.Emulators.FirstOrDefault(e => e.Name.Equals("Ruyjinx", StringComparison.OrdinalIgnoreCase))?.Id ?? Guid.Empty,
+                        EmulatorId = PlayniteApi.Database.Emulators
+                            .FirstOrDefault(e => e.Name.Equals("Ruyjinx", StringComparison.OrdinalIgnoreCase))?.Id ?? Guid.Empty,
                         EmulatorProfileId = "Default",
                         Path = firstRomPath,
                         IsPlayAction = true
                     });
 
-                    // Associate all matching ROMs with the game
-                    gameMetadata.Roms = matchingRoms.Select(romPath =>
-                        new GameRom
-                        {
-                            Name = System.IO.Path.GetFileName(romPath),
-                            Path = romPath
-                        }).ToList();
+                    // Associate ROMs with the game
+                    gameMetadata.Roms = matchingRoms.Select(romPath => new GameRom
+                    {
+                        Name = System.IO.Path.GetFileName(romPath),
+                        Path = romPath
+                    }).ToList();
 
-                    // Assign the first ROM's directory as the installation directory
+                    // Set the installation directory to the first ROM's directory
                     gameMetadata.InstallDirectory = System.IO.Path.GetDirectoryName(firstRomPath);
                 }
 
-                // Step 4: Add the game to the Playnite library
+                // Add the game metadata to the list of games
                 games.Add(gameMetadata);
                 logger.Info($"Game added to library: {gameName}");
             }
@@ -227,15 +231,22 @@ namespace NSWDL
             try
             {
                 var decodedName = System.Net.WebUtility.HtmlDecode(name);
+
+                // Remove text inside parentheses (e.g., "(Extra Content)")
                 var cleanName = Regex.Replace(decodedName, @"\s*\(.*?\)", "", RegexOptions.IgnoreCase).Trim();
+
+                // Remove trademark and registered symbols
                 cleanName = cleanName.Replace("™", "").Replace("®", "").Trim();
+
+                // Remove "+ AOC bundle" or similar phrases in the game name
+                cleanName = Regex.Replace(cleanName, @"\s*\+.*?AOC bundle", "", RegexOptions.IgnoreCase).Trim();
 
                 return cleanName;
             }
             catch (Exception ex)
             {
                 logger.Error($"Error cleaning game name: {name}. Error: {ex.Message}");
-                return name;
+                return name; // Return the original name if cleaning fails
             }
         }
 
@@ -243,8 +254,8 @@ namespace NSWDL
         {
             try
             {
-                // Replace colons (:) with dashes (-)
-                name = name.Replace(":", "-");
+                // Normalize both colons (:) and dashes (-) for flexible matching
+                name = name.Replace(":", " ").Replace("-", " ");
 
                 // Remove text inside square brackets [ ] (e.g., [0100FB2021B0E000][v0][US])
                 name = Regex.Replace(name, @"\[[^\]]*\]", "");
@@ -257,7 +268,10 @@ namespace NSWDL
 
                 // Preserve text in parentheses ( ) and curly braces { }
                 // Remove everything else that isn't part of the meaningful name
-                name = Regex.Replace(name, @"[^a-zA-Z0-9\-_\(\)\{\}\s]", "").Trim();
+                name = Regex.Replace(name, @"[^a-zA-Z0-9\s\(\)\{\}]", "").Trim();
+
+                // Normalize consecutive spaces to a single space
+                name = Regex.Replace(name, @"\s+", " ");
 
                 return name;
             }
@@ -289,7 +303,7 @@ namespace NSWDL
         private List<string> FindGameRoms(string gameName)
         {
             var romPaths = new List<string>();
-            var searchExtensions = new[] { ".nsp", ".nsa", ".xci" };
+            var searchExtensions = new[] { ".nsp", ".nsa", ".nca", ".xci" };
             var searchDirectory = "Roms\\Nintendo - Switch\\Games";
 
             foreach (var drive in System.IO.DriveInfo.GetDrives().Where(d => d.IsReady))
