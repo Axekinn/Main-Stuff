@@ -1,0 +1,294 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                    xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+                    mc:Ignorable="d">
+
+    <Style x:Key="ListGameItemStyle" TargetType="ListBoxItem">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="VerticalAlignment" Value="Bottom" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding ElementName=MoreGames, Path=IsChecked}" Value="True">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate x:Name="TemplateMain"  TargetType="ListBoxItem">
+                            <ControlTemplate.Resources>
+                                <Storyboard x:Key="TitleAnim">
+                                    <DoubleAnimation Storyboard.TargetProperty="Height" Storyboard.TargetName="Title" From="0" To="50" Duration="0:0:0.2" FillBehavior="Stop"/>
+                                    <DoubleAnimation Storyboard.TargetProperty="Height" Storyboard.TargetName="TitleBorder" From="0" To="50" Duration="0:0:0.2" FillBehavior="Stop"/>
+                                </Storyboard>
+                                <Storyboard x:Key="PlatformAnim">
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" Storyboard.TargetName="Platform" From="0" To="1" Duration="0:0:0.2" FillBehavior="Stop"/>
+                                </Storyboard>
+                                <Storyboard x:Key="IconInstallAnim">
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" Storyboard.TargetName="IconInstall" From="0" To="1" Duration="0:0:0.2" FillBehavior="Stop"/>
+                                </Storyboard>
+                                <Storyboard x:Key="BorderAnim">
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" Storyboard.TargetName="MainBorder" From="0" To="1" Duration="0:0:0.2" FillBehavior="Stop"/>
+                                </Storyboard>
+                                <Storyboard x:Key="FirstItem">
+                                    <DoubleAnimation Storyboard.TargetName="ScaleTransform"
+                                             Storyboard.TargetProperty="ScaleX"
+                                             From="1" To="1.57" Duration="0:0:0.001"/>
+                                    <DoubleAnimation Storyboard.TargetName="ScaleTransform"
+                                             Storyboard.TargetProperty="ScaleY"
+                                             From="1" To="1.57" Duration="0:0:0.001"/>
+                                </Storyboard>
+                                <Storyboard x:Key="RestItem">
+                                    <DoubleAnimation Storyboard.TargetName="ScaleTransform"
+                                             Storyboard.TargetProperty="ScaleX"
+                                             From="1" To="0.825" Duration="0:0:0.001"/>
+                                    <DoubleAnimation Storyboard.TargetName="ScaleTransform"
+                                             Storyboard.TargetProperty="ScaleY"
+                                             From="1" To="0.825" Duration="0:0:0.001"/>
+                                </Storyboard>
+                            </ControlTemplate.Resources>
+                            <Grid x:Name="GameItem"  Margin="0,0,0,0"
+                          RenderTransformOrigin="0.25,0.5"
+                          d:DataContext="{x:Static DesignMainViewModel.DesignSelectedGameIntance}">
+                                <Grid.RenderTransform>
+                                    <ScaleTransform x:Name="ScaleTransform" ScaleX="1" ScaleY="1" />
+                                </Grid.RenderTransform>
+                                <ContentPresenter />
+                                <Border x:Name="MainBorder" BorderThickness="2" BorderBrush="{DynamicResource ThemeColorBorder}"
+                                Margin="-4" Visibility="Collapsed" CornerRadius="4">
+                                    <Border.Effect>
+                                        <DropShadowEffect ShadowDepth="0" Opacity="1"
+                                                  Color="{DynamicResource ThemeColor}"                                                  
+                                                  RenderingBias="Quality" BlurRadius="5"/>
+                                    </Border.Effect>
+                                </Border>
+                                <Grid Visibility="{Settings Fullscreen.ShowGameTitles}" VerticalAlignment="Bottom">
+                                    <Border x:Name="TitleBorder" Visibility="Collapsed" Background="#80000000" CornerRadius="5" Height="50"/>
+                                    <TextBlock x:Name="Title" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" Height="50"
+                                                                                       Visibility="Collapsed" FontSize="22"
+                                                                                       Style="{DynamicResource TextBlockBaseStyle}"
+                                                                                       HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                                                                       TextAlignment="Center" Padding="7" Foreground="#FFEBEBEB"/>
+                                </Grid>
+                                <Border x:Name="IconInstall" Background="#80000000" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="5" Width="40" Height="40" CornerRadius="5" Visibility="Collapsed">
+                                    <TextBlock x:Name="textBlock" TextWrapping="Wrap" Text="&#xE896;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center" Foreground="White" HorizontalAlignment="Center" FontSize="28"/>
+                                </Border>
+                                <Border x:Name="Platform" Background="Transparent" Opacity="1" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="5,0,0,5" MinWidth="50" Height="50" CornerRadius="5" Visibility="Visible">
+                                    <Image RenderOptions.BitmapScalingMode="Fant" HorizontalAlignment="Left" VerticalAlignment="Center" Height="40" Margin="5,0,0,0"
+                                               Source="{Binding Platforms[0].Icon, Converter={StaticResource ImageStringToImageConverter}}"/>
+                                </Border>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsInstalled}" Value="False">
+                                    <Setter Property="Visibility" Value="Visible" TargetName="IconInstall" />
+                                </DataTrigger>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding ElementName=GamesToggle, Path=IsChecked}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
+                                </MultiDataTrigger>
+                                <Trigger Property="ItemsControl.AlternationIndex" Value="0">
+                                    <Setter Property="Visibility" Value="Visible"></Setter>
+                                    <Setter Property="Canvas.ZIndex" Value="90" />
+                                    <Setter Property="BorderThickness" TargetName="MainBorder" Value="2"/>
+                                    <Setter Property="Margin" TargetName="GameItem" Value="-20,2,20,-2"/>
+                                    <Setter Property="FontSize" TargetName="Title" Value="16"/>
+                                    <Setter Property="Padding" TargetName="Title" Value="12"/>
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard x:Name="FirstIndex" Storyboard="{StaticResource FirstItem}"/>
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                                <Trigger Property="ItemsControl.AlternationIndex" Value="1">
+                                    <Setter Property="Visibility" Value="Visible"></Setter>
+                                    <Setter Property="Margin" TargetName="GameItem" Value="124,93,-124,-93"/>
+                                    <Setter Property="BorderThickness" TargetName="MainBorder" Value="4"/>
+                                    <Setter Property="Margin" TargetName="MainBorder" Value="-7"/>
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard Storyboard="{StaticResource RestItem}"/>
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                                <Trigger Property="ItemsControl.AlternationIndex" Value="2">
+                                    <Setter Property="Visibility" Value="Visible"></Setter>
+                                    <Setter Property="Margin" TargetName="GameItem" Value="98,93,-98,-93"/>
+                                    <Setter Property="BorderThickness" TargetName="MainBorder" Value="4"/>
+                                    <Setter Property="Margin" TargetName="MainBorder" Value="-7"/>
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard Storyboard="{StaticResource RestItem}"/>
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                                <Trigger Property="ItemsControl.AlternationIndex" Value="3">
+                                    <Setter Property="Visibility" Value="Visible"></Setter>
+                                    <Setter Property="Margin" TargetName="GameItem" Value="71,93,-71,-93"/>
+                                    <Setter Property="BorderThickness" TargetName="MainBorder" Value="4"/>
+                                    <Setter Property="Margin" TargetName="MainBorder" Value="-7"/>
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard Storyboard="{StaticResource RestItem}"/>
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                                <Trigger Property="ItemsControl.AlternationIndex" Value="4">
+                                    <Setter Property="Visibility" Value="Visible"></Setter>
+                                    <Setter Property="Margin" TargetName="GameItem" Value="44,93,-44,-93"/>
+                                    <Setter Property="BorderThickness" TargetName="MainBorder" Value="4"/>
+                                    <Setter Property="Margin" TargetName="MainBorder" Value="-7"/>
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard Storyboard="{StaticResource RestItem}"/>
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                                <Trigger Property="ItemsControl.AlternationIndex" Value="5">
+                                    <Setter Property="Visibility" Value="Visible"></Setter>
+                                    <Setter Property="Margin" TargetName="GameItem" Value="17,93,-17,-93"/>
+                                    <Setter Property="BorderThickness" TargetName="MainBorder" Value="4"/>
+                                    <Setter Property="Margin" TargetName="MainBorder" Value="-7"/>
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard Storyboard="{StaticResource RestItem}"/>
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                                <Trigger Property="ItemsControl.AlternationIndex" Value="6">
+                                    <Setter Property="Visibility" Value="Visible"></Setter>
+                                    <Setter Property="Margin" TargetName="GameItem" Value="-10,93,10,-93"/>
+                                    <Setter Property="BorderThickness" TargetName="MainBorder" Value="4"/>
+                                    <Setter Property="Margin" TargetName="MainBorder" Value="-7"/>
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard Storyboard="{StaticResource RestItem}"/>
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                                <Trigger Property="ItemsControl.AlternationIndex" Value="7">
+                                    <Setter Property="Visibility" Value="Collapsed"></Setter>
+                                </Trigger>
+                                <Trigger Property="ItemsControl.AlternationIndex" Value="8">
+                                    <Setter Property="Visibility" Value="Collapsed"></Setter>
+                                </Trigger>
+                                <Trigger Property="ItemsControl.AlternationIndex" Value="9">
+                                    <Setter Property="Visibility" Value="Collapsed"></Setter>
+                                </Trigger>
+                                <Trigger Property="ItemsControl.AlternationIndex" Value="10">
+                                    <Setter Property="Visibility" Value="Collapsed"></Setter>
+                                </Trigger>
+                                <Trigger Property="IsFocused" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" TargetName="MainBorder" />
+                                    <Setter Property="Canvas.ZIndex" Value="90" />
+                                </Trigger>
+                                <Trigger Property="IsFocused" Value="False">
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard Storyboard="{StaticResource PlatformAnim}"/>
+                                        <BeginStoryboard Storyboard="{StaticResource IconInstallAnim}"/>
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                                <Trigger Property="IsFocused" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" TargetName="Title" />
+                                    <Setter Property="Visibility" Value="Visible" TargetName="TitleBorder" />
+                                    <Setter Property="Visibility" Value="Collapsed" TargetName="Platform" />
+                                    <Setter Property="Visibility" Value="Collapsed" TargetName="IconInstall" />
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard Storyboard="{StaticResource TitleAnim}"/>
+                                        <BeginStoryboard Storyboard="{StaticResource BorderAnim}"/>
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                                
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </DataTrigger>
+            <DataTrigger Binding="{Binding ElementName=MoreGames, Path=IsChecked}" Value="False">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate x:Name="TemplateAll" TargetType="ListBoxItem">
+                            <ControlTemplate.Resources>
+                                <Storyboard x:Key="TitleAnim">
+                                    <DoubleAnimation Storyboard.TargetProperty="Height" Storyboard.TargetName="Title" From="0" To="50" Duration="0:0:0.2" FillBehavior="Stop"/>
+                                    <DoubleAnimation Storyboard.TargetProperty="Height" Storyboard.TargetName="TitleBorder" From="0" To="50" Duration="0:0:0.2" FillBehavior="Stop"/>
+                                </Storyboard>
+                                <Storyboard x:Key="BorderAnim">
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" Storyboard.TargetName="MainBorder" From="0" To="1" Duration="0:0:0.2" FillBehavior="Stop"/>
+                                </Storyboard>
+                                <Storyboard x:Key="PlatformAnim">
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" Storyboard.TargetName="Platform" From="0" To="1" Duration="0:0:0.2" FillBehavior="Stop"/>
+                                </Storyboard>
+                                <Storyboard x:Key="IconInstallAnim">
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" Storyboard.TargetName="IconInstall" From="0" To="1" Duration="0:0:0.2" FillBehavior="Stop"/>
+                                </Storyboard>
+                                <Storyboard x:Key="FocusedOn">
+                                    <DoubleAnimation Storyboard.TargetName="ScaleTransform"
+                                             Storyboard.TargetProperty="ScaleX"
+                                             From="0.91" To="0.92" Duration="0:0:0.1"/>
+                                    <DoubleAnimation Storyboard.TargetName="ScaleTransform"
+                                             Storyboard.TargetProperty="ScaleY"
+                                             From="0.91" To="0.92" Duration="0:0:0.1"/>
+                                </Storyboard>
+                                <Storyboard x:Key="FocusedOff">
+                                    <DoubleAnimation Storyboard.TargetName="ScaleTransform"
+                                             Storyboard.TargetProperty="ScaleX"
+                                             From="0.92" To="0.91" Duration="0:0:0.2"/>
+                                    <DoubleAnimation Storyboard.TargetName="ScaleTransform"
+                                             Storyboard.TargetProperty="ScaleY"
+                                             From="0.92" To="0.91" Duration="0:0:0.2"/>
+                                </Storyboard>
+                            </ControlTemplate.Resources>
+                            <Grid Margin="-3.5"
+                          RenderTransformOrigin="0.5,0.5"
+                          d:DataContext="{x:Static DesignMainViewModel.DesignSelectedGameIntance}">
+                                <Grid.RenderTransform>
+                                    <ScaleTransform x:Name="ScaleTransform" ScaleX="0.91" ScaleY="0.91" />
+                                </Grid.RenderTransform>
+                                <ContentPresenter />
+                                <Border x:Name="MainBorder" BorderThickness="3" BorderBrush="{DynamicResource ThemeColorBorder}"
+                                Margin="-6" Visibility="Collapsed" CornerRadius="4">
+                                    <Border.Effect>
+                                        <DropShadowEffect ShadowDepth="0" Opacity="1"
+                                                  Color="{DynamicResource ThemeColor}"                                                  
+                                                  RenderingBias="Quality" BlurRadius="20"/>
+                                    </Border.Effect>
+                                </Border>
+                                <Grid Visibility="{Settings Fullscreen.ShowGameTitles}" VerticalAlignment="Bottom">
+                                    <Border x:Name="TitleBorder" Visibility="Collapsed" Background="#80000000" CornerRadius="5" Height="50"/>
+                                    <TextBlock x:Name="Title" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" Height="50"
+                                                                                       Visibility="Collapsed" FontSize="22"
+                                                                                       Style="{DynamicResource TextBlockBaseStyle}"
+                                                                                       HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                                                                       TextAlignment="Center" Padding="7" Foreground="#FFEBEBEB"/>
+                                </Grid>
+                                <Border x:Name="IconInstall" Background="#80000000" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="5" Width="40" Height="40" CornerRadius="5" Visibility="Collapsed">
+                                    <TextBlock x:Name="textBlock" TextWrapping="Wrap" Text="&#xE896;" FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center" Foreground="White" HorizontalAlignment="Center" FontSize="28"/>
+                                </Border>
+                                <Border x:Name="Platform" Background="Transparent" Opacity="1" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="5,0,0,5" MinWidth="50" Height="50" CornerRadius="5" Visibility="Visible">
+                                    <Image RenderOptions.BitmapScalingMode="Fant" HorizontalAlignment="Left" VerticalAlignment="Center" Height="40" Margin="5,0,0,0"
+                                               Source="{Binding Platforms[0].Icon, Converter={StaticResource ImageStringToImageConverter}}"/>
+                                </Border>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsInstalled}" Value="False">
+                                    <Setter Property="Visibility" Value="Visible" TargetName="IconInstall" />
+                                </DataTrigger>
+                                <Trigger Property="IsFocused" Value="False">
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard Storyboard="{StaticResource PlatformAnim}"/>
+                                        <BeginStoryboard Storyboard="{StaticResource IconInstallAnim}"/>
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                                <Trigger Property="IsFocused" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" TargetName="Title" />
+                                    <Setter Property="Visibility" Value="Visible" TargetName="TitleBorder" />
+                                    <Setter Property="Visibility" Value="Collapsed" TargetName="Platform" />
+                                    <Setter Property="Visibility" Value="Collapsed" TargetName="IconInstall" />
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard Storyboard="{StaticResource TitleAnim}"/>
+                                        <BeginStoryboard Storyboard="{StaticResource BorderAnim}"/>
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                                <Trigger Property="IsFocused" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" TargetName="MainBorder" />
+                                    <Setter Property="Canvas.ZIndex" Value="90" />
+                                    <Trigger.ExitActions>
+                                        <BeginStoryboard Storyboard="{StaticResource FocusedOff}" />
+                                    </Trigger.ExitActions>
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard Storyboard="{StaticResource FocusedOn}" />
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+</ResourceDictionary>
