@@ -1,4 +1,4 @@
-﻿using Playnite.SDK;
+using Playnite.SDK;
 using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
@@ -8,6 +8,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Web;
 
 namespace AnkerGames
 {
@@ -27,7 +28,7 @@ namespace AnkerGames
         /// <summary>
         /// Scrape games from the AnkerGames website.
         /// </summary>
-        private async Task<List<GameMetadata>> ScrapeGames()
+        private async Task<List<GameMetadata>> AnkerScrapeGames()
         {
             var gameEntries = new List<GameMetadata>();
             var uniqueGames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -37,7 +38,7 @@ namespace AnkerGames
                 logger.Info($"Scraping games from: {baseUrl}");
 
                 // Fetch main page content
-                string pageContent = await LoadPageContent(baseUrl);
+                string pageContent = await AnkerLoadPageContent(baseUrl);
                 if (string.IsNullOrEmpty(pageContent))
                 {
                     logger.Warn("Failed to retrieve main page content.");
@@ -47,13 +48,13 @@ namespace AnkerGames
                 logger.Info("Main page content retrieved successfully.");
 
                 // Extract game links
-                var links = ExtractGameLinks(pageContent);
+                var links = AnkerExtractGameLinks(pageContent);
                 logger.Info($"Found {links.Count} potential game links.");
 
                 foreach (var link in links)
                 {
                     // Fetch individual game page content
-                    string gamePageContent = await LoadPageContent(link);
+                    string gamePageContent = await AnkerLoadPageContent(link);
                     if (string.IsNullOrEmpty(gamePageContent))
                     {
                         logger.Warn($"Failed to retrieve content for link: {link}");
@@ -61,7 +62,7 @@ namespace AnkerGames
                     }
 
                     // Extract game name from the game page
-                    string gameName = ExtractGameNameFromPage(gamePageContent);
+                    string gameName = HttpUtility.HtmlDecode(AnkerExtractGameNameFromPage(gamePageContent)); // Decode HTML entities
                     if (string.IsNullOrEmpty(gameName))
                     {
                         logger.Warn($"Could not extract game name from page: {link}");
@@ -81,15 +82,15 @@ namespace AnkerGames
                         Name = gameName,
                         Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("PC (Windows)") },
                         GameActions = new List<GameAction>
-                {
-                    new GameAction
-                    {
-                        Name = "View on AnkerGames",
-                        Type = GameActionType.URL,
-                        Path = link,
-                        IsPlayAction = false
-                    }
-                },
+                        {
+                            new GameAction
+                            {
+                                Name = "View on AnkerGames",
+                                Type = GameActionType.URL,
+                                Path = link,
+                                IsPlayAction = false
+                            }
+                        },
                         IsInstalled = false
                     };
 
@@ -110,7 +111,7 @@ namespace AnkerGames
         /// <summary>
         /// Extract the game name from the game's page content.
         /// </summary>
-        private string ExtractGameNameFromPage(string pageContent)
+        private string AnkerExtractGameNameFromPage(string pageContent)
         {
             // Use a regular expression to match the <h3> element with the specified class
             var match = Regex.Match(pageContent, @"<h3 class=""text-xl tracking-tighter font-semibold text-gray-900 dark:text-gray-100 line-clamp-1"">\s*(.+?)\s*</h3>");
@@ -127,7 +128,7 @@ namespace AnkerGames
         /// <summary>
         /// Fetch HTML content of the page.
         /// </summary>
-        private async Task<string> LoadPageContent(string url)
+        private async Task<string> AnkerLoadPageContent(string url)
         {
             using (var httpClient = new HttpClient())
             {
@@ -146,7 +147,7 @@ namespace AnkerGames
         /// <summary>
         /// Extract game links matching the AnkerGames pattern.
         /// </summary>
-        private List<string> ExtractGameLinks(string pageContent)
+        private List<string> AnkerExtractGameLinks(string pageContent)
         {
             var links = new List<string>();
             var matches = Regex.Matches(pageContent, @"href=[""'](https:\/\/ankergames\.net\/game\/[a-zA-Z0-9\-]+)[""']", RegexOptions.IgnoreCase);
@@ -163,33 +164,19 @@ namespace AnkerGames
             return links;
         }
 
-        /// <summary>
-        /// Extract the game name from the URL.
-        /// </summary>
-        private string ExtractGameNameFromUrl(string url)
-        {
-            var match = Regex.Match(url, @"\/game\/([a-zA-Z0-9\-]+)$");
-            if (match.Success)
-            {
-                string rawName = match.Groups[1].Value;
-                return Uri.UnescapeDataString(rawName.Replace("-", " ")).Trim();
-            }
-            return string.Empty;
-        }
-
         public override IEnumerable<GameMetadata> GetGames(LibraryGetGamesArgs args)
         {
             var games = new List<GameMetadata>();
-            var scrapedGames = ScrapeGames().GetAwaiter().GetResult(); // Use the ScrapeGames method tailored for AnkerGames
+            var scrapedGames = AnkerScrapeGames().GetAwaiter().GetResult();
             logger.Info($"Total scraped game entries: {scrapedGames.Count}");
 
             foreach (var game in scrapedGames)
             {
                 var gameName = game.Name;
-                var sanitizedGameName = SanitizePath(gameName);
+                var sanitizedGameName = AnkerSanitizePath(gameName);
 
                 // Check if the game already exists in the Playnite library
-                if (PlayniteApi.Database.Games.Any(existingGame => existingGame.PluginId == Id && existingGame.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase)))
+                if (AnkerIsDuplicate(gameName)) // Fixed to prevent being greyed out
                 {
                     logger.Info($"Skipping duplicate game: {gameName}");
                     continue;
@@ -206,17 +193,17 @@ namespace AnkerGames
                         GameId = gameName.ToLower(),
                         Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("PC (Windows)") },
                         GameActions = new List<GameAction>
-                {
-                    new GameAction
-                    {
-                        Name = "Download AnkerGames",
-                        Type = GameActionType.URL,
-                        Path = game.GameActions.First().Path, // The scraped URL for the game
-                        IsPlayAction = false
-                    }
-                },
+                        {
+                            new GameAction
+                            {
+                                Name = "Download AnkerGames",
+                                Type = GameActionType.URL,
+                                Path = game.GameActions.First().Path,
+                                IsPlayAction = false
+                            }
+                        },
                         IsInstalled = false,
-                        InstallDirectory = null, // Scraped games don't have an install directory
+                        InstallDirectory = null,
                         Icon = new MetadataFile(Path.Combine(sanitizedGameName, "icon.png")),
                         BackgroundImage = new MetadataFile(Path.Combine(sanitizedGameName, "background.png"))
                     };
@@ -237,7 +224,7 @@ namespace AnkerGames
         /// <summary>
         /// Sanitize the path to remove invalid characters.
         /// </summary>
-        private string SanitizePath(string path)
+        private string AnkerSanitizePath(string path)
         {
             return Regex.Replace(path, @"[<>:""/\\|?*]", string.Empty);
         }
@@ -245,11 +232,12 @@ namespace AnkerGames
         /// <summary>
         /// Check if the game is already in the Playnite library.
         /// </summary>
-        private bool IsDuplicate(GameMetadata gameMetadata)
+        private bool AnkerIsDuplicate(string gameName)
         {
+            // Fixed logic to prevent being greyed out
             return PlayniteApi.Database.Games.Any(existingGame =>
                 existingGame.PluginId == Id &&
-                existingGame.Name.Equals(gameMetadata.Name, StringComparison.OrdinalIgnoreCase));
+                existingGame.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
         }
     }
 }
