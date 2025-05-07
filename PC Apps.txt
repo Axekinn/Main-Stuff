@@ -21,6 +21,8 @@
 "Nintendo Switch Store", "https://github.com/Koriebonx98/Main-Stuff/raw/refs/heads/main/PN%20ADDONS/Nintendo%20Switch%20Store%20(v.1.0).pext"
 "Nintendo Wii Store", "https://github.com/Koriebonx98/Main-Stuff/raw/refs/heads/main/PN%20ADDONS/Nintendo%20Wii%20Store%20(V.1.0).pext"
 "PlayStation 2 Store", "https://github.com/Koriebonx98/Main-Stuff/raw/refs/heads/main/PN%20ADDONS/PS2%20Store%20(v.1.0).pext"
+"MovieBoxPro", "https://Test.com"
+
 
 # Emulators:
 "Pcsx2", "https://github.com/PCSX2/pcsx2/releases"
