@@ -3,7 +3,6 @@ using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net.Http;
 using System.Text.RegularExpressions;
@@ -28,15 +27,31 @@ namespace NSWDL
         {
             var games = new List<GameMetadata>();
 
-            // Step 1: Scrape game data from the site
+            // Step 1: Get existing games in Playnite library added by this plugin
+            var existingGames = PlayniteApi.Database.Games
+                .Where(game => game.PluginId == Id) // Only consider games added by this plugin
+                .Select(game => CleanNameForMatching(game.Name))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            logger.Info($"Total games in Playnite library added by NSWDL: {existingGames.Count}");
+
+            // Step 2: Scrape game data from the site
             var scrapedGames = ScrapeSite().GetAwaiter().GetResult();
             logger.Info($"Total scraped game entries: {scrapedGames.Count}");
 
-            // Step 2: Process each scraped game
+            // Step 3: Process each scraped game
             foreach (var scrapedGame in scrapedGames)
             {
                 var gameName = scrapedGame.Name;
                 var cleanedGameName = CleanNameForMatching(gameName);
+
+                // Check if the game already exists in Playnite (added by this plugin)
+                if (existingGames.Contains(cleanedGameName))
+                {
+                    logger.Info($"Skipping game already in library (from this plugin): {gameName}");
+                    continue;
+                }
+
+                // Find matching ROMs
                 var romPaths = FindGameRoms(cleanedGameName);
 
                 // Match ROMs to the cleaned game name
@@ -64,16 +79,16 @@ namespace NSWDL
                     GameId = gameName.ToLowerInvariant(),
                     Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("Nintendo Switch") },
                     GameActions = new List<GameAction>
-            {
-                // Add the "Download" action
-                new GameAction
-                {
-                    Name = "Download",
-                    Type = GameActionType.URL,
-                    Path = scrapedGame.GameActions.FirstOrDefault()?.Path,
-                    IsPlayAction = false
-                }
-            },
+                    {
+                        // Add the "Download" action
+                        new GameAction
+                        {
+                            Name = "Download",
+                            Type = GameActionType.URL,
+                            Path = scrapedGame.GameActions.FirstOrDefault()?.Path,
+                            IsPlayAction = false
+                        }
+                    },
                     IsInstalled = matchingRoms.Any(),
                     Icon = null,
                     BackgroundImage = null
@@ -89,7 +104,7 @@ namespace NSWDL
                         Name = "Play",
                         Type = GameActionType.Emulator,
                         EmulatorId = PlayniteApi.Database.Emulators
-                            .FirstOrDefault(e => e.Name.Equals("Ruyjinx", StringComparison.OrdinalIgnoreCase))?.Id ?? Guid.Empty,
+                            .FirstOrDefault(e => e.Name.Equals("Ryujinx", StringComparison.OrdinalIgnoreCase))?.Id ?? Guid.Empty,
                         EmulatorProfileId = "Default",
                         Path = firstRomPath,
                         IsPlayAction = true
@@ -119,64 +134,58 @@ namespace NSWDL
         {
             var gameEntries = new List<GameMetadata>();
             var uniqueUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var pagesScraped = 0;
 
             try
             {
                 string currentUrl = BaseUrl;
-                while (!string.IsNullOrEmpty(currentUrl))
+                logger.Info($"Scraping site index: {currentUrl}");
+
+                string pageContent = await LoadPageContent(currentUrl);
+
+                if (string.IsNullOrWhiteSpace(pageContent))
                 {
-                    pagesScraped++;
-                    logger.Info($"Scraping page {pagesScraped}: {currentUrl}");
+                    logger.Warn($"No content found on site index. Stopping scraping.");
+                    return gameEntries;
+                }
 
-                    string pageContent = await LoadPageContent(currentUrl);
+                var links = ParseLinks(pageContent);
+                logger.Info($"Found {links.Count} hyperlinks on the site index.");
 
-                    if (string.IsNullOrWhiteSpace(pageContent))
+                foreach (var link in links)
+                {
+                    string href = link.Item1;
+                    string text = link.Item2;
+
+                    if (string.IsNullOrWhiteSpace(href) || string.IsNullOrWhiteSpace(text))
                     {
-                        logger.Warn($"No content found for page {currentUrl}. Ending scraping.");
-                        break;
+                        logger.Warn($"Skipping invalid hyperlink: Text='{text}', URL='{href}'");
+                        continue;
                     }
 
-                    var links = ParseLinks(pageContent);
-                    logger.Info($"Page {pagesScraped}: Found {links.Count} hyperlinks.");
+                    // Use original naming logic for accurate naming
+                    string cleanName = CleanGameName(text);
 
-                    foreach (var link in links)
+                    if (!string.IsNullOrEmpty(cleanName) && uniqueUrls.Add(href))
                     {
-                        string href = link.Item1;
-                        string text = link.Item2;
-
-                        if (string.IsNullOrWhiteSpace(href) || string.IsNullOrWhiteSpace(text))
+                        var gameMetadata = new GameMetadata
                         {
-                            logger.Warn($"Skipping invalid hyperlink: Text='{text}', URL='{href}'");
-                            continue;
-                        }
-
-                        string cleanName = CleanGameName(text);
-
-                        if (!string.IsNullOrEmpty(cleanName) && uniqueUrls.Add(href))
-                        {
-                            var gameMetadata = new GameMetadata
+                            Name = cleanName,
+                            GameActions = new List<GameAction>
                             {
-                                Name = cleanName,
-                                GameActions = new List<GameAction>
+                                new GameAction
                                 {
-                                    new GameAction
-                                    {
-                                        Name = "Download",
-                                        Type = GameActionType.URL,
-                                        Path = href,
-                                        IsPlayAction = false
-                                    }
-                                },
-                                IsInstalled = false
-                            };
+                                    Name = "Download",
+                                    Type = GameActionType.URL,
+                                    Path = href,
+                                    IsPlayAction = false
+                                }
+                            },
+                            IsInstalled = false
+                        };
 
-                            gameEntries.Add(gameMetadata);
-                            logger.Info($"Game added: Name='{cleanName}', URL='{href}'");
-                        }
+                        gameEntries.Add(gameMetadata);
+                        logger.Info($"Game added: Name='{cleanName}', URL='{href}'");
                     }
-
-                    currentUrl = GetNextPageUrl(pageContent);
                 }
             }
             catch (Exception ex)
@@ -213,7 +222,7 @@ namespace NSWDL
                 foreach (Match match in matches)
                 {
                     string href = match.Groups[1].Value;
-                    string text = System.Net.WebUtility.HtmlDecode(match.Groups[2].Value);
+                    string text = System.Net.WebUtility.HtmlDecode(match.Groups[2].Value).Trim();
                     text = Regex.Replace(text, "<.*?>", string.Empty);
                     links.Add(new Tuple<string, string>(href, text));
                 }
@@ -230,6 +239,7 @@ namespace NSWDL
         {
             try
             {
+                // Use the original naming logic for accuracy
                 var decodedName = System.Net.WebUtility.HtmlDecode(name);
 
                 // Remove text inside parentheses (e.g., "(Extra Content)")
@@ -254,7 +264,7 @@ namespace NSWDL
         {
             try
             {
-                // Normalize both colons (:) and dashes (-) for flexible matching
+                // Normalize colons (:), dashes (-), and other characters for flexible matching
                 name = name.Replace(":", " ").Replace("-", " ");
 
                 // Remove text inside square brackets [ ] (e.g., [0100FB2021B0E000][v0][US])
@@ -267,41 +277,27 @@ namespace NSWDL
                 name = Regex.Replace(name, @"\.\w+$", "");
 
                 // Preserve text in parentheses ( ) and curly braces { }
-                // Remove everything else that isn't part of the meaningful name
                 name = Regex.Replace(name, @"[^a-zA-Z0-9\s\(\)\{\}]", "").Trim();
 
                 // Normalize consecutive spaces to a single space
                 name = Regex.Replace(name, @"\s+", " ");
 
-                return name;
+                return name.ToLowerInvariant();
             }
             catch (Exception ex)
             {
                 logger.Error($"Error cleaning name for matching: {name}. Error: {ex.Message}");
-                return name; // Return the original name if cleaning fails
+                return name;
             }
-        }
-
-        private string GetNextPageUrl(string pageContent)
-        {
-            try
-            {
-                var match = Regex.Match(pageContent, @"<a\s+href=[""'](https://nswdl\.com/switch-posts/page/\d+/?)[""'].*?>Next</a>");
-                if (match.Success)
-                {
-                    return match.Groups[1].Value;
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.Error($"Error finding next page URL: {ex.Message}");
-            }
-
-            return null;
         }
 
         private List<string> FindGameRoms(string gameName)
         {
+            if (string.IsNullOrEmpty(gameName))
+            {
+                throw new ArgumentException($"'{nameof(gameName)}' cannot be null or empty.", nameof(gameName));
+            }
+
             var romPaths = new List<string>();
             var searchExtensions = new[] { ".nsp", ".nsa", ".nca", ".xci" };
             var searchDirectory = "Roms\\Nintendo - Switch\\Games";
@@ -327,5 +323,8 @@ namespace NSWDL
 
             return romPaths;
         }
+
+        
+
+        }
     }
-}
