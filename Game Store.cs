@@ -21,6 +21,7 @@ using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Security.Cryptography;
 using System.Xml;
+using File = System.IO.File;
 
 namespace GameStore
 {
@@ -47,7 +48,7 @@ namespace GameStore
         private static readonly string Nintendo_WII_Games_BaseUrl = "https://myrient.erista.me/files/Redump/Nintendo%20-%20Wii%20-%20NKit%20RVZ%20[zstd-19-128k]/";
         private static readonly string Nintendo64_Games_BaseUrl = "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%2064%20(BigEndian)/";
         private const string Xbox360_Games_BaseUrl = "https://myrient.erista.me/files/Redump/Microsoft%20-%20Xbox%20360/";
-        private const string Xbla_Games_BaseUrl = "https://myrient.erista.me/files/No-Intro/Microsoft%20-%20Xbox%20360%20(Digital)/";
+        private const string Xbox360Digital_Games_BaseUrl = "https://myrient.erista.me/files/No-Intro/Microsoft%20-%20Xbox%20360%20(Digital)/";
 
 
 
@@ -65,26 +66,37 @@ namespace GameStore
 
         public override IEnumerable<GameMetadata> GetGames(LibraryGetGamesArgs args)
         {
-            // ------------------- LOCAL UPDATE SECTION -------------------
-            var localGames = new ConcurrentBag<GameMetadata>();
-            var exclusionsLocal = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            string localExclusionsPath = Path.Combine(GetPluginUserDataPathLocal(), "Exclusions.txt");
+                // ------------------- LOCAL UPDATE SECTION -------------------
+                
+                var exclusionsLocal = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                string localExclusionsPath = Path.Combine(GetPluginUserDataPathLocal(), "Exclusions.txt");
 
-            // Efficiently read exclusions using streaming
-            if (System.IO.File.Exists(localExclusionsPath))
-            {
-                int excludedCount = 0;
-                foreach (var line in System.IO.File.ReadLines(localExclusionsPath)
-                                           .Select(x => x.Trim())
-                                           .Where(x => !string.IsNullOrEmpty(x)))
+                // Efficiently read exclusions using streaming
+                if (System.IO.File.Exists(localExclusionsPath))
                 {
-                    exclusionsLocal.Add(line.ToLower());
-                    excludedCount++;
+                    int excludedCount = 0;
+                    foreach (var line in System.IO.File.ReadLines(localExclusionsPath)
+                                               .Select(x => x.Trim())
+                                               .Where(x => !string.IsNullOrEmpty(x)))
+                    {
+                        exclusionsLocal.Add(line.ToLower());
+                        excludedCount++;
+                    }
+                    logger.Info($"Total exclusions loaded: {excludedCount}");
                 }
-                logger.Info($"Total exclusions loaded: {excludedCount}");
-            }
 
-            // Process "Games" folder with parallel execution
+            // Build a dictionary of all PC games for O(1) lookup by normalized name, keeping only the first occurrence if duplicates exist
+            var pcGames = PlayniteApi.Database.Games
+                .Where(g => g.PluginId == Id
+                    && g.Platforms != null
+                    && g.Platforms.Any(p => p.Name.Equals("PC (Windows)", StringComparison.OrdinalIgnoreCase)))
+                .GroupBy(g => NormalizeGameName(ConvertHyphenToColon(CleanGameName(SanitizePath(g.Name)))), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            // Thread-safe collection for local games
+            var localGames = new ConcurrentBag<GameMetadata>();
+
+            // Parallel scan of "Games" folders across all drives
             Parallel.ForEach(DriveInfo.GetDrives().Where(d => d.IsReady), drive =>
             {
                 string gamesFolderPath = Path.Combine(drive.RootDirectory.FullName, "Games");
@@ -102,13 +114,9 @@ namespace GameStore
                     string folderName = Path.GetFileName(folder);
                     string gameNameLocal = NormalizeGameName(ConvertHyphenToColon(CleanGameName(SanitizePath(folderName))));
 
-                    var existingGame = PlayniteApi.Database.Games.FirstOrDefault(g =>
-                        g.PluginId == Id &&
-                        g.Platforms != null &&
-                        g.Platforms.Any(p => p.Name.Equals("PC (Windows)", StringComparison.OrdinalIgnoreCase)) &&
-                        NormalizeGameName(g.Name).Equals(gameNameLocal, StringComparison.OrdinalIgnoreCase));
+                    pcGames.TryGetValue(gameNameLocal, out var existingGame);
 
-                    // Find version files (filtering executed in parallel)
+                    // Find version files (*.txt matching ^v[version])
                     string[] versionFiles = Array.Empty<string>();
                     try
                     {
@@ -123,9 +131,9 @@ namespace GameStore
                         return;
                     }
 
-                    // Find valid EXE files with exclusion tracking (processing in parallel)
+                    // Find valid EXEs, tracking exclusions
                     string[] exeFiles = Array.Empty<string>();
-                    var excludedFiles = new List<string>();
+                    var excludedFiles = new ConcurrentBag<string>();
                     try
                     {
                         exeFiles = Directory.GetFiles(folder, "*.exe", SearchOption.AllDirectories)
@@ -151,56 +159,59 @@ namespace GameStore
                         return;
                     }
 
-                    if (excludedFiles.Count > 0)
+                    if (!excludedFiles.IsEmpty)
                     {
                         logger.Info($"Excluded EXE files in '{folder}': {string.Join(", ", excludedFiles)}");
                     }
 
                     if (existingGame != null)
                     {
-                        if (string.IsNullOrWhiteSpace(existingGame.InstallDirectory) || !Directory.Exists(existingGame.InstallDirectory))
+                        lock (existingGame) // Thread-safe update of existing game
                         {
-                            existingGame.InstallDirectory = folder;
-                        }
-                        existingGame.IsInstalled = true;
-
-                        // Preserve existing "Download:" actions while adding new play actions
-                        var downloadActions = existingGame.GameActions
-                            .Where(a => a.Name.StartsWith("Download:", StringComparison.OrdinalIgnoreCase))
-                            .ToList();
-
-                        foreach (var exe in exeFiles)
-                        {
-                            if (!existingGame.GameActions.Any(action => action.Path.Equals(exe, StringComparison.OrdinalIgnoreCase)))
+                            if (string.IsNullOrWhiteSpace(existingGame.InstallDirectory) || !Directory.Exists(existingGame.InstallDirectory))
                             {
-                                existingGame.GameActions.Add(new GameAction()
+                                existingGame.InstallDirectory = folder;
+                            }
+                            existingGame.IsInstalled = true;
+
+                            // Preserve all "Download:" actions while adding new play actions
+                            var downloadActions = existingGame.GameActions
+                                .Where(a => a.Name.StartsWith("Download:", StringComparison.OrdinalIgnoreCase))
+                                .ToList();
+
+                            foreach (var exe in exeFiles)
+                            {
+                                if (!existingGame.GameActions.Any(action => action.Path.Equals(exe, StringComparison.OrdinalIgnoreCase)))
                                 {
-                                    Type = GameActionType.File,
-                                    Path = exe,
-                                    Name = Path.GetFileNameWithoutExtension(exe),
-                                    IsPlayAction = true,
-                                    WorkingDir = folder
-                                });
-                                logger.Info($"Added new play action '{Path.GetFileName(exe)}' for game '{existingGame.Name}'");
+                                    existingGame.GameActions.Add(new GameAction()
+                                    {
+                                        Type = GameActionType.File,
+                                        Path = exe,
+                                        Name = Path.GetFileNameWithoutExtension(exe),
+                                        IsPlayAction = true,
+                                        WorkingDir = folder
+                                    });
+                                    logger.Info($"Added new play action '{Path.GetFileName(exe)}' for game '{existingGame.Name}'");
+                                }
                             }
-                        }
 
-                        foreach (var action in downloadActions)
-                        {
-                            if (!existingGame.GameActions.Contains(action))
+                            foreach (var action in downloadActions)
                             {
-                                existingGame.GameActions.Add(action);
+                                if (!existingGame.GameActions.Contains(action))
+                                {
+                                    existingGame.GameActions.Add(action);
+                                }
                             }
-                        }
 
-                        if (versionFiles.Any())
-                        {
-                            string localVersion = Path.GetFileNameWithoutExtension(versionFiles.First());
-                            existingGame.Version = localVersion;
-                        }
+                            if (versionFiles.Any())
+                            {
+                                string localVersion = Path.GetFileNameWithoutExtension(versionFiles.First());
+                                existingGame.Version = localVersion;
+                            }
 
-                        PlayniteApi.Database.Games.Update(existingGame);
-                        logger.Info($"Updated install status for {existingGame.Name}: Installed = {existingGame.IsInstalled}");
+                            PlayniteApi.Database.Games.Update(existingGame);
+                            logger.Info($"Updated install status for {existingGame.Name}: Installed = {existingGame.IsInstalled}");
+                        }
                     }
                     else
                     {
@@ -244,9 +255,19 @@ namespace GameStore
                 });
             });
 
+            // Convert concurrent bag to list for later use
             var localGamesList = localGames.ToList();
 
-            // Process "Repacks" folder with parallel execution
+            // Pre-index all Repacks games for O(1) lookup by normalized name, using only the first found if duplicates exist
+            var repackGames = PlayniteApi.Database.Games
+                .Where(g => g.PluginId == Id)
+                .GroupBy(g => ConvertHyphenToColon(CleanGameName(SanitizePath(g.Name))), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            // Thread-safe collection for repack games to add
+            var repackGameMetas = new ConcurrentBag<GameMetadata>();
+
+            // Parallel scan of "Repacks" folders across all drives
             Parallel.ForEach(DriveInfo.GetDrives().Where(d => d.IsReady), drive =>
             {
                 string repacksFolderPath = Path.Combine(drive.RootDirectory.FullName, "Repacks");
@@ -258,9 +279,7 @@ namespace GameStore
                     string folderName = Path.GetFileName(folder);
                     string gameNameLocal = ConvertHyphenToColon(CleanGameName(SanitizePath(folderName)));
 
-                    var existingGame = PlayniteApi.Database.Games.FirstOrDefault(g =>
-                        g.PluginId == Id &&
-                        g.Name.Equals(gameNameLocal, StringComparison.OrdinalIgnoreCase));
+                    repackGames.TryGetValue(gameNameLocal, out var existingGame);
 
                     if (existingGame != null)
                     {
@@ -284,20 +303,17 @@ namespace GameStore
                         };
 
                         AddInstallReadyFeature(gameMetadata);
-                        lock (localGames)
-                        {
-                            localGames.Add(gameMetadata);
-                        }
+                        repackGameMetas.Add(gameMetadata);
                         logger.Info($"Added new repack game: {gameMetadata.Name} | Expected Install Directory: {gameMetadata.InstallDirectory}");
                     }
                 });
             });
-
             // ------------------- ONLINE SCRAPE SECTION -------------------
             var allGames = new List<GameMetadata>();
-            allGames.AddRange(localGamesList);
+            allGames.AddRange(localGamesList); // localGamesList likely from your local PC scan section
+            allGames.AddRange(repackGameMetas); // add repack games collected above
 
-            // Helper: for deduplication by normalized name
+            // Deduplication by normalized name
             var existingNormalizedFromDB = PlayniteApi.Database.Games
                 .Where(g => g.PluginId == Id)
                 .Select(g => NormalizeGameName(g.Name))
@@ -332,6 +348,7 @@ namespace GameStore
                 }
             }
 
+            // Add online-scraped games (deduped)
             AddScraped(ScrapeSite().GetAwaiter().GetResult(), "SteamRip");
             AddScraped(AnkerScrapeGames().GetAwaiter().GetResult(), "AnkerGames");
             AddScraped(MagipackScrapeGames().GetAwaiter().GetResult(), "Magipack", gameName => MagipackIsDuplicate(gameName));
@@ -389,10 +406,20 @@ namespace GameStore
             foreach (var game in Myrient_Nintendo_WII_ScrapeStaticPage().GetAwaiter().GetResult())
             {
                 string norm = Myrient_NormalizeGameName(game.Name);
-                if (existingNormalizedFromDB.Contains(norm)) continue;
+
+                // Ensure existing game check uses Plugin ID & Platform logic
+                if (existingNormalizedFromDB.Contains(norm) || PlayniteApi.Database.Games.Any(g =>
+                        g.PluginId == Id &&
+                        g.Platforms != null && g.Platforms.Any(p => p.Name.Equals("Nintendo Wii", StringComparison.OrdinalIgnoreCase)) &&
+                        g.Name.Equals(norm, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
                 var cleaned = Myrient_CleanNameForMatching(game.Name);
                 var matchingRoms = WIIRoms.Where(r =>
                     Myrient_CleanNameForMatching(Path.GetFileNameWithoutExtension(r)).Equals(cleaned, StringComparison.OrdinalIgnoreCase)).ToList();
+
                 if (matchingRoms.Any())
                 {
                     game.IsInstalled = true;
@@ -406,6 +433,7 @@ namespace GameStore
                         var profile = dolphin.BuiltinProfiles.First();
                         if (game.GameActions == null)
                             game.GameActions = new List<GameAction>();
+
                         game.GameActions.Add(new GameAction
                         {
                             Name = "Play",
@@ -421,15 +449,26 @@ namespace GameStore
                 existingNormalizedFromDB.Add(norm);
             }
 
+
             // PS2
             var ps2Roms = Myrient_FindGameRoms("");
             foreach (var game in Myrient_Sony_PS2_ScrapeStaticPage().GetAwaiter().GetResult())
             {
                 string norm = Myrient_NormalizeGameName(game.Name);
-                if (existingNormalizedFromDB.Contains(norm)) continue;
+
+                // Ensure existing game check uses Plugin ID & Platform logic
+                if (existingNormalizedFromDB.Contains(norm) || PlayniteApi.Database.Games.Any(g =>
+                        g.PluginId == Id &&
+                        g.Platforms != null && g.Platforms.Any(p => p.Name.Equals("Sony PlayStation 2", StringComparison.OrdinalIgnoreCase)) &&
+                        g.Name.Equals(norm, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
                 var cleaned = Myrient_CleanNameForMatching(game.Name);
                 var matchingRoms = ps2Roms.Where(r =>
                     Myrient_CleanNameForMatching(Path.GetFileNameWithoutExtension(r)).Equals(cleaned, StringComparison.OrdinalIgnoreCase)).ToList();
+
                 if (matchingRoms.Any())
                 {
                     game.IsInstalled = true;
@@ -445,6 +484,7 @@ namespace GameStore
                         if (profile == null) profile = pcsx2.BuiltinProfiles.First();
                         if (game.GameActions == null)
                             game.GameActions = new List<GameAction>();
+
                         game.GameActions.Add(new GameAction
                         {
                             Name = "Play",
@@ -460,15 +500,27 @@ namespace GameStore
                 existingNormalizedFromDB.Add(norm);
             }
 
+
+
             // Nintendo 64
             var N64Roms = FindN64GameRoms("");
             foreach (var game in Myrient_Nintendo64_ScrapeStaticPage().GetAwaiter().GetResult())
             {
                 string norm = Myrient_NormalizeGameName(game.Name);
-                if (existingNormalizedFromDB.Contains(norm)) continue;
+
+                // Ensure existing game check uses Plugin ID & Platform logic
+                if (existingNormalizedFromDB.Contains(norm) || PlayniteApi.Database.Games.Any(g =>
+                        g.PluginId == Id &&
+                        g.Platforms != null && g.Platforms.Any(p => p.Name.Equals("Nintendo 64", StringComparison.OrdinalIgnoreCase)) &&
+                        g.Name.Equals(norm, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
                 var cleaned = Myrient_CleanNameForMatching(game.Name);
                 var matchingRoms = N64Roms.Where(r =>
                     Myrient_CleanNameForMatching(Path.GetFileNameWithoutExtension(r)).Equals(cleaned, StringComparison.OrdinalIgnoreCase)).ToList();
+
                 if (matchingRoms.Any())
                 {
                     game.IsInstalled = true;
@@ -482,6 +534,7 @@ namespace GameStore
                         var profile = project64.BuiltinProfiles.First();
                         if (game.GameActions == null)
                             game.GameActions = new List<GameAction>();
+
                         game.GameActions.Add(new GameAction
                         {
                             Name = "Play",
@@ -497,30 +550,79 @@ namespace GameStore
                 existingNormalizedFromDB.Add(norm);
             }
 
-            // Xbox 360 Game Store integration
+
+            // Find all Xbox 360 ROMs once
             var Xbox360Roms = FindXbox360GameRoms("");
-            foreach (var game in Myrient_Microsoft_Xbox360_ScrapeStaticPage().GetAwaiter().GetResult())
+
+            // Log file path
+            var logPath = Path.Combine(
+                PlayniteApi.Paths.ConfigurationPath ?? "",
+                "Xbox 360.txt"
+            );
+
+            // Write all found ROMs to log, also log normalized names for debugging
+            File.WriteAllText(logPath, "=== Xbox 360 ROMs Found ===\n");
+            foreach (var rom in Xbox360Roms)
+            {
+                var romNorm = Myrient_NormalizeGameName(Path.GetFileNameWithoutExtension(rom));
+                File.AppendAllText(logPath, $"{rom}\n    Normalized: {romNorm}\n");
+            }
+
+            // Build a hash set of normalized name + platform for fast O(1) existence check (like Wii/PS2)
+            var dbGameKeys = new HashSet<string>(
+                PlayniteApi.Database.Games
+                    .Where(g => g.PluginId == Id && g.Platforms != null)
+                    .SelectMany(g => g.Platforms.Select(p => $"{Myrient_NormalizeGameName(g.Name)}|{p.Name}")),
+                StringComparer.OrdinalIgnoreCase);
+
+            // Local set to prevent duplicate adds in this run
+            var processedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            File.AppendAllText(logPath, "\n=== Xbox 360 Games Scanned ===\n");
+
+            foreach (var game in Myrient_Xbox360_ScrapeStaticPage().GetAwaiter().GetResult())
             {
                 string norm = Myrient_NormalizeGameName(game.Name);
-                if (existingNormalizedFromDB.Contains(norm)) continue;
-                var cleaned = Myrient_CleanNameForMatching(game.Name);
+                string platformName = "Microsoft Xbox 360";
+                string uniqueKey = $"{norm}|{platformName}";
+
+                // Fast skip if exists in DB or already processed this run
+                if (dbGameKeys.Contains(uniqueKey) || processedKeys.Contains(uniqueKey))
+                    continue;
+                processedKeys.Add(uniqueKey);
+
+                // Use the same normalization for both sides!
                 var matchingRoms = Xbox360Roms.Where(r =>
-                    Myrient_CleanNameForMatching(Path.GetFileNameWithoutExtension(r)).Equals(cleaned, StringComparison.OrdinalIgnoreCase)).ToList();
+                    Myrient_NormalizeGameName(Path.GetFileNameWithoutExtension(r)).Equals(norm, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                // Log matching process for each game
+                File.AppendAllText(logPath, $"Game: {game.Name}\n  Normalized: {norm}\n");
+
+                if (matchingRoms.Any())
+                {
+                    File.AppendAllText(logPath, $"  MATCHED ROMS:\n");
+                    foreach (var rom in matchingRoms)
+                        File.AppendAllText(logPath, $"    {rom}\n");
+                }
+                else
+                {
+                    File.AppendAllText(logPath, $"  No matching ROM found.\n");
+                }
+
                 if (matchingRoms.Any())
                 {
                     game.IsInstalled = true;
                     game.InstallDirectory = Path.GetDirectoryName(matchingRoms.First());
                     game.Roms = matchingRoms.Select(r => new GameRom { Name = Path.GetFileName(r), Path = r }).ToList();
 
-                    // -- Emulator Play Action for Xenia --
+                    // -- Emulator Play Action --
                     var xenia = PlayniteApi.Database.Emulators.FirstOrDefault(e => e.Name.Equals("Xenia", StringComparison.OrdinalIgnoreCase));
                     if (xenia != null && xenia.BuiltinProfiles != null && xenia.BuiltinProfiles.Any())
                     {
-                        var profile = xenia.BuiltinProfiles.FirstOrDefault(p => p.Name.IndexOf("Canary", StringComparison.OrdinalIgnoreCase) >= 0);
-                        if (profile == null)
-                            profile = xenia.BuiltinProfiles.First();
+                        var profile = xenia.BuiltinProfiles.First();
                         if (game.GameActions == null)
                             game.GameActions = new List<GameAction>();
+
                         game.GameActions.Add(new GameAction
                         {
                             Name = "Play",
@@ -533,43 +635,51 @@ namespace GameStore
                     }
                 }
                 allGames.Add(game);
-                existingNormalizedFromDB.Add(norm);
             }
 
-            // XBLA Game Store integration
-            var XBLARoms = FindXBLAGameRoms("");
-            foreach (var game in Myrient_Microsoft_XBLAGame_ScrapeStaticPage().GetAwaiter().GetResult())
+
+            // Find all Xbox 360 Digital ROMs once
+            var Xbox360DigitalRoms = FindXbox360DigitalGameRoms("");
+
+            // Build a hash set of normalized name + platform for fast O(1) existence check
+            var dbGameKeys_Xbox360Digital = new HashSet<string>(
+                PlayniteApi.Database.Games
+                    .Where(g => g.PluginId == Id && g.Platforms != null)
+                    .SelectMany(g => g.Platforms.Select(p => $"{Myrient_NormalizeGameName(g.Name)}|{p.Name}")),
+                StringComparer.OrdinalIgnoreCase);
+
+            // Local set to prevent duplicate adds in this run
+            var processedKeys_Xbox360Digital = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var game in Myrient_Xbox360Digital_ScrapeStaticPage().GetAwaiter().GetResult())
             {
                 string norm = Myrient_NormalizeGameName(game.Name);
-                if (existingNormalizedFromDB.Contains(norm)) continue;
+                string platformName = "Microsoft Xbox 360";
+                string uniqueKey = $"{norm}|{platformName}";
+
+                // Fast skip if exists in DB or already processed this run
+                if (dbGameKeys_Xbox360Digital.Contains(uniqueKey) || processedKeys_Xbox360Digital.Contains(uniqueKey))
+                    continue;
+                processedKeys_Xbox360Digital.Add(uniqueKey);
 
                 var cleaned = Myrient_CleanNameForMatching(game.Name);
-                var matchingRoms = XBLARoms
-                    .Where(r => Myrient_CleanNameForMatching(Path.GetFileNameWithoutExtension(r))
-                        .Equals(cleaned, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
+                var matchingRoms = Xbox360DigitalRoms.Where(r =>
+                    Myrient_CleanNameForMatching(Path.GetFileNameWithoutExtension(r)).Equals(cleaned, StringComparison.OrdinalIgnoreCase)).ToList();
 
                 if (matchingRoms.Any())
                 {
                     game.IsInstalled = true;
                     game.InstallDirectory = Path.GetDirectoryName(matchingRoms.First());
-                    game.Roms = matchingRoms.Select(r => new GameRom
-                    {
-                        Name = Path.GetFileName(r),
-                        Path = r
-                    }).ToList();
+                    game.Roms = matchingRoms.Select(r => new GameRom { Name = Path.GetFileName(r), Path = r }).ToList();
 
-                    // -- Emulator Play Action for Xenia --
-                    var xenia = PlayniteApi.Database.Emulators
-                        .FirstOrDefault(e => e.Name.Equals("Xenia", StringComparison.OrdinalIgnoreCase));
+                    // -- Emulator Play Action --
+                    var xenia = PlayniteApi.Database.Emulators.FirstOrDefault(e => e.Name.Equals("Xenia", StringComparison.OrdinalIgnoreCase));
                     if (xenia != null && xenia.BuiltinProfiles != null && xenia.BuiltinProfiles.Any())
                     {
-                        var profile = xenia.BuiltinProfiles
-                            .FirstOrDefault(p => p.Name.IndexOf("Canary", StringComparison.OrdinalIgnoreCase) >= 0)
-                            ?? xenia.BuiltinProfiles.First();
-
+                        var profile = xenia.BuiltinProfiles.First();
                         if (game.GameActions == null)
                             game.GameActions = new List<GameAction>();
+
                         game.GameActions.Add(new GameAction
                         {
                             Name = "Play",
@@ -581,18 +691,18 @@ namespace GameStore
                         });
                     }
                 }
-
-                // Make sure XBLA platform is safely assigned
-                AddXboxLiveArcadePlatform(game);
-
                 allGames.Add(game);
-                existingNormalizedFromDB.Add(norm);
             }
 
 
-            return allGames;
-        }
 
+
+            return allGames;
+
+
+
+
+        }
         private string GetPluginUserDataPathLocal()
         {
             // Build the user data path under %APPDATA%\Playnite\ExtensionsData\<PluginID>
@@ -605,84 +715,62 @@ namespace GameStore
             return userDataPath;
         }
 
-
+       
 
         private void AddInstallReadyFeature(Game existingGame)
         {
-            var installReadyFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Install Ready]", StringComparison.OrdinalIgnoreCase));
+            if (existingGame == null)
+                return;
+
+            var installReadyFeature = PlayniteApi.Database.Features
+                .FirstOrDefault(f => f.Name.Equals("[Install Ready]", StringComparison.OrdinalIgnoreCase));
             if (installReadyFeature == null)
             {
                 installReadyFeature = new GameFeature("[Install Ready]");
                 PlayniteApi.Database.Features.Add(installReadyFeature);
-                PlayniteApi.Database.Features.Update(installReadyFeature);
             }
 
             if (existingGame.FeatureIds == null)
-            {
                 existingGame.FeatureIds = new List<Guid>();
-            }
 
             if (!existingGame.FeatureIds.Contains(installReadyFeature.Id))
             {
                 existingGame.FeatureIds.Add(installReadyFeature.Id);
                 PlayniteApi.Database.Games.Update(existingGame);
-
             }
         }
 
         private void AddInstallReadyFeature(GameMetadata newGame)
         {
-            var installReadyFeature = PlayniteApi.Database.Features.FirstOrDefault(f => f.Name.Equals("[Install Ready]", StringComparison.OrdinalIgnoreCase));
+            if (newGame == null)
+                return;
+
+            var installReadyFeature = PlayniteApi.Database.Features
+                .FirstOrDefault(f => f.Name.Equals("[Install Ready]", StringComparison.OrdinalIgnoreCase));
             if (installReadyFeature == null)
             {
                 installReadyFeature = new GameFeature("[Install Ready]");
                 PlayniteApi.Database.Features.Add(installReadyFeature);
-                PlayniteApi.Database.Features.Update(installReadyFeature);
             }
 
             if (newGame.Features == null)
-            {
                 newGame.Features = new HashSet<MetadataProperty>();
-            }
 
-            bool featureExists = newGame.Features.OfType<MetadataSpecProperty>().Any(f => f.Id == installReadyFeature.Id.ToString());
+            bool featureExists = newGame.Features
+                .OfType<MetadataSpecProperty>()
+                .Any(f => f.Id == installReadyFeature.Id.ToString());
 
-            if (!featureExists)
+            if (!featureExists && installReadyFeature.Id != Guid.Empty)
             {
                 newGame.Features.Add(new MetadataSpecProperty(installReadyFeature.Id.ToString()));
             }
         }
 
-        private void AddXboxLiveArcadePlatform(GameMetadata game)
-        {
-            if (game == null) return;
 
-            if (game.Platforms == null)
-                game.Platforms = new HashSet<MetadataProperty>();
 
-            // Ensure platform exists in database
-            var xblaPlatform = PlayniteApi.Database.Platforms
-                .FirstOrDefault(p => p.Name.Equals("Xbox Live Arcade", StringComparison.OrdinalIgnoreCase));
-            if (xblaPlatform == null)
-            {
-                xblaPlatform = new Platform("Xbox Live Arcade");
-                PlayniteApi.Database.Platforms.Add(xblaPlatform);
-                PlayniteApi.Database.Platforms.Update(xblaPlatform);
-            }
-
-            // Only add if not already present and not null!
-            var specProp = new MetadataSpecProperty(xblaPlatform.Id.ToString());
-            if (specProp != null && !game.Platforms.OfType<MetadataSpecProperty>().Any(p => p.Id == specProp.Id))
-            {
-                game.Platforms.Add(specProp);
-            }
-            else if (!game.Platforms.OfType<MetadataNameProperty>().Any(p => p.Name.Equals("Xbox Live Arcade", StringComparison.OrdinalIgnoreCase)))
-            {
-                // Fallback if specProp is null
-                game.Platforms.Add(new MetadataNameProperty("Xbox Live Arcade"));
-            }
-        }
         private string ConvertHyphenToColon(string name)
+
+
 
         {
             var parts = name.Split(new[] { " - " }, 2, StringSplitOptions.None);
@@ -704,12 +792,17 @@ namespace GameStore
 
         private async Task<List<GameMetadata>> ScrapeSite()
         {
-            // Build a dictionary for DB games keyed by normalized name.
-            // Group by normalized name to avoid duplicate key issues if the DB has duplicate entries.
-            var dbGames = PlayniteApi.Database.Games
-                .Where(g => g.PluginId == Id)
-                .GroupBy(g => NormalizeGameName(g.Name))
-                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            // Build a hash set for fast O(1) lookup of existing DB games by normalized name,
+            // but ONLY include those for "PC (Windows)" platform AND having "Download: SteamRip" action.
+            var dbGameKeys = new HashSet<string>(
+                PlayniteApi.Database.Games
+                    .Where(g => g.PluginId == Id
+                        && g.Platforms != null
+                        && g.Platforms.Any(p => p.Name.Equals("PC (Windows)", StringComparison.OrdinalIgnoreCase))
+                        && g.GameActions != null
+                        && g.GameActions.Any(a => a.Name.Equals("Download: SteamRip", StringComparison.OrdinalIgnoreCase)))
+                    .Select(g => NormalizeGameName(g.Name)),
+                StringComparer.OrdinalIgnoreCase);
 
             // URL to scrape.
             string url = steamripBaseUrl;
@@ -790,44 +883,29 @@ namespace GameStore
                 })
                 .ToList();
 
-            // Build final list by filtering out games already in the DB.
-            // For those already in the DB, update missing download actions.
-            var finalScrapedGames = new List<GameMetadata>();
-            foreach (var game in mergedScrapedGames)
-            {
-                if (dbGames.TryGetValue(game.GameId, out Game dbGame))
-                {
-                    foreach (var action in game.GameActions)
-                    {
-                        if (!dbGame.GameActions.Any(a =>
-                                a.Name.Equals(action.Name, StringComparison.OrdinalIgnoreCase) &&
-                                a.Path.Equals(action.Path, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            dbGame.GameActions.Add(action);
-                            logger.Info($"Added download action to existing DB game: {game.Name}");
-                        }
-                    }
-                }
-                else
-                {
-                    finalScrapedGames.Add(game);
-                }
-            }
+            // Final list: only include games NOT already in DB with matching platform and action.
+            var finalScrapedGames = mergedScrapedGames
+                .Where(game => !dbGameKeys.Contains(game.GameId))
+                .ToList();
 
             return finalScrapedGames;
         }
-
         // Example: Include this code in your class
 
         private async Task<List<GameMetadata>> AnkerScrapeGames()
         {
             const string downloadActionName = "Download: AnkerGames";
 
-            // Build a dictionary for quick DB game lookup (keyed by normalized game name).
-            var dbGames = PlayniteApi.Database.Games
-                .Where(g => g.PluginId == Id)
-                .GroupBy(g => NormalizeGameName(g.Name))
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+            // Fast O(1) lookup: Only DB games with PC (Windows) platform AND Download: AnkerGames action
+            var dbGameKeys = new HashSet<string>(
+                PlayniteApi.Database.Games
+                    .Where(g => g.PluginId == Id
+                        && g.Platforms != null
+                        && g.Platforms.Any(p => p.Name.Equals("PC (Windows)", StringComparison.OrdinalIgnoreCase))
+                        && g.GameActions != null
+                        && g.GameActions.Any(a => a.Name.Equals(downloadActionName, StringComparison.OrdinalIgnoreCase)))
+                    .Select(g => NormalizeGameName(g.Name)),
+                StringComparer.OrdinalIgnoreCase);
 
             // Use a concurrent dictionary for newly scraped games.
             var scrapedGames = new ConcurrentDictionary<string, GameMetadata>(StringComparer.OrdinalIgnoreCase);
@@ -902,25 +980,9 @@ namespace GameStore
                             string gameName = WebUtility.HtmlDecode(rawGameName);
                             string normalizedKey = NormalizeGameName(gameName);
 
-                            // Check if the game already exists in the DB.
-                            if (dbGames.TryGetValue(normalizedKey, out var dbGame))
-                            {
-                                lock (dbGame.GameActions)
-                                {
-                                    if (!dbGame.GameActions.Any(a => a.Name.Equals(downloadActionName, StringComparison.OrdinalIgnoreCase)))
-                                    {
-                                        dbGame.GameActions.Add(new GameAction
-                                        {
-                                            Name = downloadActionName,
-                                            Type = GameActionType.URL,
-                                            Path = link,
-                                            IsPlayAction = false
-                                        });
-                                        logger.Info($"Added new download action for DB game: {gameName}");
-                                    }
-                                }
+                            // O(1) skip if the game already exists in Playnite DB for PC (Windows) and has Download: AnkerGames action
+                            if (dbGameKeys.Contains(normalizedKey))
                                 return;
-                            }
 
                             // Merge the new game into scrapedGames.
                             scrapedGames.AddOrUpdate(
@@ -991,7 +1053,6 @@ namespace GameStore
 
             return scrapedGames.Values.ToList();
         }
-
         private async Task<string> AnkerLoadMoreContent()
         {
             // Construct the URL for "Load More". Adjust this based on how AnkerGames loads additional games.
@@ -1017,13 +1078,18 @@ namespace GameStore
 
         private async Task<List<GameMetadata>> MagipackScrapeGames()
         {
-            // Build a dictionary for DB games keyed by normalized game name.
-            var dbGames = PlayniteApi.Database.Games
-                .Where(g => g.PluginId == Id)
-                .GroupBy(g => NormalizeGameName(g.Name))
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+            const string downloadActionName = "Download: Magipack";
+            // O(1) lookup: Only DB games with PC (Windows) platform AND Download: Magipack action
+            var dbGameKeys = new HashSet<string>(
+                PlayniteApi.Database.Games
+                    .Where(g => g.PluginId == Id
+                        && g.Platforms != null
+                        && g.Platforms.Any(p => p.Name.Equals("PC (Windows)", StringComparison.OrdinalIgnoreCase))
+                        && g.GameActions != null
+                        && g.GameActions.Any(a => a.Name.Equals(downloadActionName, StringComparison.OrdinalIgnoreCase)))
+                    .Select(g => NormalizeGameName(g.Name)),
+                StringComparer.OrdinalIgnoreCase);
 
-            // Use a concurrent dictionary for new (scraped) games.
             var scrapedGames = new ConcurrentDictionary<string, GameMetadata>(StringComparer.OrdinalIgnoreCase);
 
             logger.Info($"Scraping games from: {magipackBaseUrl}");
@@ -1074,25 +1140,9 @@ namespace GameStore
                 // Generate normalized key for duplicate checking.
                 string normalizedKey = NormalizeGameName(cleanName);
 
-                // If the game exists in the DB, update its GameActions if necessary.
-                if (dbGames.TryGetValue(normalizedKey, out var dbGame))
-                {
-                    if (!dbGame.GameActions.Any(a => a.Name.Equals("Download: Magipack", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        lock (dbGame.GameActions)
-                        {
-                            dbGame.GameActions.Add(new GameAction
-                            {
-                                Name = "Download: Magipack",
-                                Type = GameActionType.URL,
-                                Path = href,
-                                IsPlayAction = false
-                            });
-                        }
-                        logger.Info($"Added download action to existing DB game: {cleanName}");
-                    }
+                // O(1) skip if game already in DB for PC (Windows) with Download: Magipack action
+                if (dbGameKeys.Contains(normalizedKey))
                     return;
-                }
 
                 // Otherwise, add or update the scraped game entry.
                 scrapedGames.AddOrUpdate(
@@ -1109,7 +1159,7 @@ namespace GameStore
                             {
                         new GameAction
                         {
-                            Name = "Download: Magipack",
+                            Name = downloadActionName,
                             Type = GameActionType.URL,
                             Path = href,
                             IsPlayAction = false
@@ -1122,13 +1172,13 @@ namespace GameStore
                     (key, existingGame) =>
                     {
                         // Update existing entry if download action is missing.
-                        if (!existingGame.GameActions.Any(a => a.Name.Equals("Download: Magipack", StringComparison.OrdinalIgnoreCase)))
+                        if (!existingGame.GameActions.Any(a => a.Name.Equals(downloadActionName, StringComparison.OrdinalIgnoreCase)))
                         {
                             lock (existingGame.GameActions)
                             {
                                 existingGame.GameActions.Add(new GameAction
                                 {
-                                    Name = "Download: Magipack",
+                                    Name = downloadActionName,
                                     Type = GameActionType.URL,
                                     Path = href,
                                     IsPlayAction = false
@@ -1143,14 +1193,19 @@ namespace GameStore
             logger.Info($"Magipack scraping completed. New games added: {scrapedGames.Count}");
             return scrapedGames.Values.ToList();
         }
-
         private async Task<List<GameMetadata>> ElamigosScrapeGames()
         {
-            // Build a dictionary for DB games keyed by normalized game name.
-            var dbGames = PlayniteApi.Database.Games
-                .Where(g => g.PluginId == Id)
-                .GroupBy(g => NormalizeGameName(g.Name))
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+            const string downloadActionName = "Download: elAmigos";
+            // O(1) lookup: Only DB games with PC (Windows) platform AND Download: elAmigos action
+            var dbGameKeys = new HashSet<string>(
+                PlayniteApi.Database.Games
+                    .Where(g => g.PluginId == Id
+                        && g.Platforms != null
+                        && g.Platforms.Any(p => p.Name.Equals("PC (Windows)", StringComparison.OrdinalIgnoreCase))
+                        && g.GameActions != null
+                        && g.GameActions.Any(a => a.Name.Equals(downloadActionName, StringComparison.OrdinalIgnoreCase)))
+                    .Select(g => NormalizeGameName(g.Name)),
+                StringComparer.OrdinalIgnoreCase);
 
             // Dictionary for new (scraped) games.
             var scrapedGames = new Dictionary<string, GameMetadata>(StringComparer.OrdinalIgnoreCase);
@@ -1233,29 +1288,11 @@ namespace GameStore
                 string displayName = cleanName;
                 string normalizedName = NormalizeGameName(cleanName);
 
-                // First, if the game exists in the DB, update its GameActions if needed.
-                if (dbGames.TryGetValue(normalizedName, out var dbGame))
-                {
-                    if (!dbGame.GameActions.Any(a =>
-                           a.Name.Equals("Download: elAmigos", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        // Lock the DB game's actions list while updating.
-                        lock (dbGame.GameActions)
-                        {
-                            dbGame.GameActions.Add(new GameAction
-                            {
-                                Name = "Download: elAmigos",
-                                Type = GameActionType.URL,
-                                Path = href,
-                                IsPlayAction = false
-                            });
-                        }
-                        logger.Info($"Added download action to existing DB game: {displayName}");
-                    }
+                // O(1) skip if game already in DB for PC (Windows) with Download: elAmigos action
+                if (dbGameKeys.Contains(normalizedName))
                     return;
-                }
 
-                // If game is not in the DB, update the scrapedGames dictionary.
+                // Update the scrapedGames dictionary.
                 lock (scrapedLock)
                 {
                     if (!scrapedGames.ContainsKey(normalizedName))
@@ -1270,7 +1307,7 @@ namespace GameStore
                     {
                         new GameAction
                         {
-                            Name = "Download: elAmigos",
+                            Name = downloadActionName,
                             Type = GameActionType.URL,
                             Path = href,
                             IsPlayAction = false
@@ -1285,11 +1322,11 @@ namespace GameStore
                         // Duplicate found among the scraped games; add the action if it does not exist.
                         var existingGame = scrapedGames[normalizedName];
                         if (!existingGame.GameActions.Any(a =>
-                               a.Name.Equals("Download: elAmigos", StringComparison.OrdinalIgnoreCase)))
+                               a.Name.Equals(downloadActionName, StringComparison.OrdinalIgnoreCase)))
                         {
                             existingGame.GameActions.Add(new GameAction
                             {
-                                Name = "Download: elAmigos",
+                                Name = downloadActionName,
                                 Type = GameActionType.URL,
                                 Path = href,
                                 IsPlayAction = false
@@ -1303,14 +1340,19 @@ namespace GameStore
             logger.Info($"ElAmigos scraping completed. New games added: {scrapedGames.Count}");
             return scrapedGames.Values.ToList();
         }
-
         private async Task<List<GameMetadata>> FitGirlScrapeGames()
         {
-            // Create a dictionary for DB games keyed by normalized name.
-            var dbGames = PlayniteApi.Database.Games
-                .Where(g => g.PluginId == Id)
-                .GroupBy(g => NormalizeGameName(g.Name))
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+            const string downloadActionName = "Download: FitGirl Repacks";
+            // O(1) lookup: Only DB games with PC (Windows) platform AND Download: FitGirl Repacks action
+            var dbGameKeys = new HashSet<string>(
+                PlayniteApi.Database.Games
+                    .Where(g => g.PluginId == Id
+                        && g.Platforms != null
+                        && g.Platforms.Any(p => p.Name.Equals("PC (Windows)", StringComparison.OrdinalIgnoreCase))
+                        && g.GameActions != null
+                        && g.GameActions.Any(a => a.Name.Equals(downloadActionName, StringComparison.OrdinalIgnoreCase)))
+                    .Select(g => NormalizeGameName(g.Name)),
+                StringComparer.OrdinalIgnoreCase);
 
             // Use a concurrent dictionary for new (scraped) games.
             var scrapedGames = new ConcurrentDictionary<string, GameMetadata>(StringComparer.OrdinalIgnoreCase);
@@ -1367,23 +1409,9 @@ namespace GameStore
                         // Generate a normalized key.
                         string normalizedName = NormalizeGameName(cleanName);
 
-                        // First, if the game exists in the DB, update its GameActions if needed.
-                        if (dbGames.TryGetValue(normalizedName, out var dbGame))
-                        {
-                            if (!dbGame.GameActions.Any(a => a.Name.Equals("Download: FitGirl Repacks", StringComparison.OrdinalIgnoreCase)))
-                            {
-                                dbGame.GameActions.Add(new GameAction
-                                {
-                                    Name = "Download: FitGirl Repacks",
-                                    Type = GameActionType.URL,
-                                    Path = href,
-                                    IsPlayAction = false
-                                });
-                                logger.Info($"Added download action to existing DB game: {cleanName}");
-                            }
-                            // Skip adding as a new scraped game.
+                        // O(1) skip if game already in DB for PC (Windows) with Download: FitGirl Repacks action
+                        if (dbGameKeys.Contains(normalizedName))
                             return;
-                        }
 
                         // Otherwise, process as a new (scraped) game.
                         // Use AddOrUpdate to handle duplicates gracefully.
@@ -1401,7 +1429,7 @@ namespace GameStore
                                     {
                                 new GameAction
                                 {
-                                    Name = "Download: FitGirl Repacks",
+                                    Name = downloadActionName,
                                     Type = GameActionType.URL,
                                     Path = href,
                                     IsPlayAction = false
@@ -1414,11 +1442,11 @@ namespace GameStore
                             (key, existingGame) =>
                             {
                                 // Duplicate among scraped games; add the action if it doesn't exist.
-                                if (!existingGame.GameActions.Any(a => a.Name.Equals("Download: FitGirl Repacks", StringComparison.OrdinalIgnoreCase)))
+                                if (!existingGame.GameActions.Any(a => a.Name.Equals(downloadActionName, StringComparison.OrdinalIgnoreCase)))
                                 {
                                     existingGame.GameActions.Add(new GameAction
                                     {
-                                        Name = "Download: FitGirl Repacks",
+                                        Name = downloadActionName,
                                         Type = GameActionType.URL,
                                         Path = href,
                                         IsPlayAction = false
@@ -1437,17 +1465,19 @@ namespace GameStore
             logger.Info($"FitGirl scraping completed. Total new games added: {scrapedGames.Count}");
             return scrapedGames.Values.ToList();
         }
-
         private async Task<List<GameMetadata>> Myrient_Sony_PS1_ScrapeStaticPage()
         {
-            // 1. Build hash set of normalized names for fast O(1) lookup of existing DB games.
-            var dbGameKeys = new HashSet<string>(
+            // Build a hash set of normalized names for fast O(1) lookup of existing DB games per platform,
+            // ONLY including games that already have a "Download: Myrient" action.
+            var dbGameKeysPerPlatform = new HashSet<string>(
                 PlayniteApi.Database.Games
-                    .Where(g => g.PluginId == Id)
-                    .Select(g => Myrient_NormalizeGameName(g.Name)),
+                    .Where(g => g.PluginId == Id
+                        && g.Platforms != null
+                        && g.GameActions != null
+                        && g.GameActions.Any(a => a.Name.Equals("Download: Myrient", StringComparison.OrdinalIgnoreCase)))
+                    .SelectMany(g => g.Platforms.Select(p => $"{Myrient_NormalizeGameName(g.Name)}|{p.Name}")),
                 StringComparer.OrdinalIgnoreCase);
 
-            // 2. Scrape links in parallel, return new unique GameMetadata only.
             logger.Info($"[Sony_PS1_Games] Scraping games from: {Sony_PS1_Games_BaseUrl}");
 
             string pageContent = await Myrient_LoadPageContent(Sony_PS1_Games_BaseUrl).ConfigureAwait(false);
@@ -1469,7 +1499,7 @@ namespace GameStore
             }
             logger.Info($"[Sony_PS1_Games] Found {links.Length} PS1 game links.");
 
-            // 3. Result bag for concurrent add
+            // Concurrent collection for storing results
             var results = new ConcurrentBag<GameMetadata>();
 
             Parallel.ForEach(links, link =>
@@ -1478,23 +1508,25 @@ namespace GameStore
                 if (string.IsNullOrWhiteSpace(text))
                     return;
 
+                // Normalize game name to remove regional/version differences
                 string cleanName = Myrient_CleanGameName(text).Replace(".zip", "").Trim();
                 if (string.IsNullOrEmpty(cleanName))
                     cleanName = fallbackRegex.Replace(text, "$1").Replace('-', ' ').Trim();
                 if (string.IsNullOrEmpty(cleanName))
                     return;
 
-                string normalizedKey = Myrient_NormalizeGameName(cleanName);
+                string platformName = "Sony PlayStation";
+                string uniqueKey = $"{Myrient_NormalizeGameName(cleanName)}|{platformName}";
 
-                // Fast skip if exists in DB
-                if (dbGameKeys.Contains(normalizedKey))
+                // *** O(1) skip if game already present with Download: Myrient action for this platform ***
+                if (dbGameKeysPerPlatform.Contains(uniqueKey))
                     return;
 
                 var metadata = new GameMetadata
                 {
                     Name = cleanName,
-                    GameId = normalizedKey.ToLower(),
-                    Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("Sony PlayStation") },
+                    GameId = uniqueKey.ToLower(),
+                    Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty(platformName) },
                     GameActions = new List<GameAction>
             {
                 new GameAction
@@ -1514,17 +1546,19 @@ namespace GameStore
             logger.Info($"[Sony_PS1_Games] Scraping completed. Total new games added: {results.Count}");
             return results.ToList();
         }
-
         private async Task<List<GameMetadata>> Myrient_Sony_PS2_ScrapeStaticPage()
         {
-            // 1. Build hash set of normalized names for fast O(1) lookup of existing DB games.
-            var dbGameKeys = new HashSet<string>(
+            // Build a hash set of normalized names for fast O(1) lookup of existing DB games per platform
+            // ONLY include games that already have a "Download: Myrient" action
+            var dbGameKeysPerPlatform = new HashSet<string>(
                 PlayniteApi.Database.Games
-                    .Where(g => g.PluginId == Id)
-                    .Select(g => Myrient_NormalizeGameName(g.Name)),
+                    .Where(g => g.PluginId == Id
+                        && g.Platforms != null
+                        && g.GameActions != null
+                        && g.GameActions.Any(a => a.Name.Equals("Download: Myrient", StringComparison.OrdinalIgnoreCase)))
+                    .SelectMany(g => g.Platforms.Select(p => $"{Myrient_NormalizeGameName(g.Name)}|{p.Name}")),
                 StringComparer.OrdinalIgnoreCase);
 
-            // 2. Scrape links in parallel, return new unique GameMetadata only.
             logger.Info($"[Sony_PS2_Games] Scraping games from: {Sony_PS2_Games_BaseUrl}");
 
             string pageContent = await Myrient_LoadPageContent(Sony_PS2_Games_BaseUrl).ConfigureAwait(false);
@@ -1546,7 +1580,7 @@ namespace GameStore
             }
             logger.Info($"[Sony_PS2_Games] Found {links.Length} PS2 game links.");
 
-            // 3. Result bag for concurrent add
+            // Concurrent collection for storing results
             var results = new ConcurrentBag<GameMetadata>();
 
             Parallel.ForEach(links, link =>
@@ -1555,23 +1589,25 @@ namespace GameStore
                 if (string.IsNullOrWhiteSpace(text))
                     return;
 
+                // Normalize game name to remove regional/version differences
                 string cleanName = Myrient_CleanGameName(text).Replace(".zip", "").Trim();
                 if (string.IsNullOrEmpty(cleanName))
                     cleanName = fallbackRegex.Replace(text, "$1").Replace('-', ' ').Trim();
                 if (string.IsNullOrEmpty(cleanName))
                     return;
 
-                string normalizedKey = Myrient_NormalizeGameName(cleanName);
+                string platformName = "Sony PlayStation 2";
+                string uniqueKey = $"{Myrient_NormalizeGameName(cleanName)}|{platformName}";
 
-                // Fast skip if exists in DB
-                if (dbGameKeys.Contains(normalizedKey))
+                // O(1) skip if game already present with Download: Myrient action for this platform
+                if (dbGameKeysPerPlatform.Contains(uniqueKey))
                     return;
 
                 var metadata = new GameMetadata
                 {
                     Name = cleanName,
-                    GameId = normalizedKey.ToLower(),
-                    Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("Sony PlayStation 2") },
+                    GameId = uniqueKey.ToLower(),
+                    Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty(platformName) },
                     GameActions = new List<GameAction>
             {
                 new GameAction
@@ -1592,40 +1628,31 @@ namespace GameStore
             return results.ToList();
         }
 
+
         private async Task<List<GameMetadata>> Myrient_Nintendo_WII_ScrapeStaticPage()
         {
-            // 1. Build hash set of normalized names for fast O(1) lookup of existing DB games.
-            var dbGameKeys = new HashSet<string>(
+            // Build a hash set of existing games (normalized name + platform) with Download: Myrient action
+            var dbGameKeysPerPlatform = new HashSet<string>(
                 PlayniteApi.Database.Games
-                    .Where(g => g.PluginId == Id)
-                    .Select(g => Myrient_NormalizeGameName(g.Name)),
+                    .Where(g => g.PluginId == Id && g.Platforms != null &&
+                                g.GameActions != null &&
+                                g.GameActions.Any(a => a.Name.Equals("Download: Myrient", StringComparison.OrdinalIgnoreCase)))
+                    .SelectMany(g => g.Platforms.Select(p => $"{Myrient_NormalizeGameName(g.Name)}|{p.Name}")),
                 StringComparer.OrdinalIgnoreCase);
 
-            // 2. Scrape links in parallel, return new unique GameMetadata only.
-            logger.Info($"[Nintendo_WII_Games] Scraping games from: {Nintendo_WII_Games_BaseUrl}");
-
+            // Download and parse page as before
             string pageContent = await Myrient_LoadPageContent(Nintendo_WII_Games_BaseUrl).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(pageContent))
-            {
-                logger.Warn("[Nintendo_WII_Games] Failed to retrieve main page content.");
                 return new List<GameMetadata>();
-            }
-            logger.Info($"[Nintendo_WII_Games] Page content retrieved successfully ({pageContent.Length} characters).");
 
             var links = Myrient_ParseLinks(pageContent)?
                 .Where(link => link.Item1.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                 .ToArray();
 
             if (links == null || links.Length == 0)
-            {
-                logger.Info("[Nintendo_WII_Games] No valid game links found.");
                 return new List<GameMetadata>();
-            }
-            logger.Info($"[Nintendo_WII_Games] Found {links.Length} Wii game links.");
 
-            // 3. Result bag for concurrent add
             var results = new ConcurrentBag<GameMetadata>();
-
             Parallel.ForEach(links, link =>
             {
                 string text = link.Item2;
@@ -1634,61 +1661,21 @@ namespace GameStore
 
                 string cleanName = Myrient_CleanGameName(text).Replace(".zip", "").Trim();
                 if (string.IsNullOrEmpty(cleanName))
-                    cleanName = fallbackRegex.Replace(text, "$1").Replace('-', ' ').Trim();
-                if (string.IsNullOrEmpty(cleanName))
                     return;
 
-                string normalizedKey = Myrient_NormalizeGameName(cleanName);
+                string platformName = "Nintendo Wii";
+                string uniqueKey = $"{Myrient_NormalizeGameName(cleanName)}|{platformName}";
 
-                // Fast skip if exists in DB
-                if (dbGameKeys.Contains(normalizedKey))
+                // O(1) skip if already in Playnite with Download: Myrient
+                if (dbGameKeysPerPlatform.Contains(uniqueKey))
                     return;
 
-                var metadata = new GameMetadata
-                {
-                    Name = cleanName,
-                    GameId = normalizedKey.ToLower(),
-                    Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("Nintendo Wii") },
-                    GameActions = new List<GameAction>
-            {
-                new GameAction
-                {
-                    Name = "Download: Myrient",
-                    Type = GameActionType.URL,
-                    Path = Nintendo_WII_Games_BaseUrl,
-                    IsPlayAction = false
-                }
-            },
-                    IsInstalled = false
-                };
-
-                // --- Add Emulator Play Action for Dolphin with "Nintenndo WII" profile ---
-                var dolphin = PlayniteApi.Database.Emulators.FirstOrDefault(e => e.Name.Equals("Dolphin", StringComparison.OrdinalIgnoreCase));
-                if (dolphin != null && dolphin.BuiltinProfiles != null)
-                {
-                    var wiiProfile = dolphin.BuiltinProfiles.FirstOrDefault(p => p.Name.Equals("Nintenndo WII", StringComparison.OrdinalIgnoreCase));
-                    if (wiiProfile != null)
-                    {
-                        // Path to the ROM file (if you want to set it now, or leave empty for later user selection)
-                        // We'll use the link.Item1 as a placeholder for the ROM path.
-                        metadata.GameActions.Add(new GameAction
-                        {
-                            Name = "Play",
-                            Type = GameActionType.Emulator,
-                            EmulatorId = dolphin.Id,
-                            EmulatorProfileId = wiiProfile.Id,
-                            Path = link.Item1, // This should be set to the real ROM path after download
-                            IsPlayAction = true
-                        });
-                    }
-                }
-
-                results.Add(metadata);
+                // ... build GameMetadata as before and add to results ...
             });
 
-            logger.Info($"[Nintendo_WII_Games] Scraping completed. Total new games added: {results.Count}");
             return results.ToList();
         }
+
 
         private List<Tuple<string, string>> Myrient_ParseLinks(string pageContent)
         {
@@ -1916,14 +1903,18 @@ namespace GameStore
 
         private async Task<List<GameMetadata>> Myrient_Nintendo64_ScrapeStaticPage()
         {
-            // 1. Build hash set of normalized names for fast O(1) lookup of existing DB games.
-            var dbGameKeys = new HashSet<string>(
+            // Build a hash set of normalized names for fast O(1) lookup of existing DB games,
+            // ONLY including games that already have a "Download: Myrient" action.
+            var dbGameKeysPerPlatform = new HashSet<string>(
                 PlayniteApi.Database.Games
-                    .Where(g => g.PluginId == Id)
-                    .Select(g => Myrient_NormalizeGameName(g.Name)),
+                    .Where(g => g.PluginId == Id
+                        && g.Platforms != null
+                        && g.GameActions != null
+                        && g.GameActions.Any(a => a.Name.Equals("Download: Myrient", StringComparison.OrdinalIgnoreCase)))
+                    .SelectMany(g => g.Platforms.Select(p => $"{Myrient_NormalizeGameName(g.Name)}|{p.Name}")),
                 StringComparer.OrdinalIgnoreCase);
 
-            // 2. Scrape links in parallel, return new unique GameMetadata only.
+            // Scrape links in parallel, return new unique GameMetadata only.
             const string Nintendo64_Games_BaseUrl = "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%2064%20(BigEndian)/";
             logger.Info($"[Nintendo64_Games] Scraping games from: {Nintendo64_Games_BaseUrl}");
 
@@ -1949,7 +1940,7 @@ namespace GameStore
             }
             logger.Info($"[Nintendo64_Games] Found {links.Length} Nintendo 64 game links.");
 
-            // 3. Result bag for concurrent add.
+            // Result bag for concurrent add.
             var results = new ConcurrentBag<GameMetadata>();
 
             Parallel.ForEach(links, link =>
@@ -1958,26 +1949,27 @@ namespace GameStore
                 if (string.IsNullOrWhiteSpace(text))
                     return;
 
-                // Clean the game name: remove the file extension (.z64, .n64, .v64) using regex for case-insensitive replacement.
+                // Clean the game name: remove the file extension (.z64, .n64, .v64)
                 string rawName = Myrient_CleanGameName(text);
-                string cleanName = Regex.Replace(rawName, @"\.(zip|n64|v64)$", "", RegexOptions.IgnoreCase).Trim();
+                string cleanName = Regex.Replace(rawName, @"\.(zip|z64|n64|v64)$", "", RegexOptions.IgnoreCase).Trim();
 
                 if (string.IsNullOrEmpty(cleanName))
                     cleanName = fallbackRegex.Replace(text, "$1").Replace('-', ' ').Trim();
                 if (string.IsNullOrEmpty(cleanName))
                     return;
 
-                string normalizedKey = Myrient_NormalizeGameName(cleanName);
+                string platformName = "Nintendo 64";
+                string uniqueKey = $"{Myrient_NormalizeGameName(cleanName)}|{platformName}";
 
-                // Fast skip if the game already exists in the database.
-                if (dbGameKeys.Contains(normalizedKey))
+                // O(1) skip if game already present with Download: Myrient action for this platform
+                if (dbGameKeysPerPlatform.Contains(uniqueKey))
                     return;
 
                 var metadata = new GameMetadata
                 {
                     Name = cleanName,
-                    GameId = normalizedKey.ToLower(),
-                    Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("Nintendo 64") },
+                    GameId = uniqueKey.ToLower(),
+                    Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty(platformName) },
                     GameActions = new List<GameAction>
             {
                 new GameAction
@@ -2019,9 +2011,6 @@ namespace GameStore
             logger.Info($"[Nintendo64_Games] Scraping completed. Total new games added: {results.Count}");
             return results.ToList();
         }
-
-        // xbox 360 disc:
-
         private List<string> FindXbox360GameRoms(string gameName)
         {
             var romPaths = new List<string>();
@@ -2050,25 +2039,29 @@ namespace GameStore
             return romPaths;
         }
 
-        private async Task<List<GameMetadata>> Myrient_Microsoft_Xbox360_ScrapeStaticPage()
+
+
+        private async Task<List<GameMetadata>> Myrient_Xbox360_ScrapeStaticPage()
         {
-            // 1. Build hash set of normalized names for fast O(1) lookup of existing DB games.
-            var dbGameKeys = new HashSet<string>(
+            // Fast O(1) lookup: All normalized names for this pluginId & platform WITH "Download: Myrient" action only
+            var dbGameKeysPerPlatform = new HashSet<string>(
                 PlayniteApi.Database.Games
-                    .Where(g => g.PluginId == Id)
-                    .Select(g => Myrient_NormalizeGameName(g.Name)),
+                    .Where(g => g.PluginId == Id
+                        && g.Platforms != null
+                        && g.GameActions != null
+                        && g.GameActions.Any(a => a.Name.Equals("Download: Myrient", StringComparison.OrdinalIgnoreCase)))
+                    .SelectMany(g => g.Platforms.Select(p => $"{Myrient_NormalizeGameName(g.Name)}|{p.Name}")),
                 StringComparer.OrdinalIgnoreCase);
 
-            // 2. Scrape links in parallel, return new unique GameMetadata only.
-            logger.Info($"[Microsoft_Xbox360_Games] Scraping games from: {Xbox360_Games_BaseUrl}");
+            logger.Info($"[Xbox360_Games] Scraping games from: {Xbox360_Games_BaseUrl}");
 
             string pageContent = await Myrient_LoadPageContent(Xbox360_Games_BaseUrl).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(pageContent))
             {
-                logger.Warn("[Microsoft_Xbox360_Games] Failed to retrieve main page content.");
+                logger.Warn("[Xbox360_Games] Failed to retrieve main page content.");
                 return new List<GameMetadata>();
             }
-            logger.Info($"[Microsoft_Xbox360_Games] Page content retrieved successfully ({pageContent.Length} characters).");
+            logger.Info($"[Xbox360_Games] Page content retrieved successfully ({pageContent.Length} characters).");
 
             var links = Myrient_ParseLinks(pageContent)?
                 .Where(link => link.Item1.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
@@ -2076,65 +2069,92 @@ namespace GameStore
 
             if (links == null || links.Length == 0)
             {
-                logger.Info("[Microsoft_Xbox360_Games] No valid game links found.");
+                logger.Info("[Xbox360_Games] No valid game links found.");
                 return new List<GameMetadata>();
             }
-            logger.Info($"[Microsoft_Xbox360_Games] Found {links.Length} Xbox 360 game links.");
+            logger.Info($"[Xbox360_Games] Found {links.Length} Xbox 360 game links.");
 
-            // 3. Result bag for concurrent add
             var results = new ConcurrentBag<GameMetadata>();
 
             Parallel.ForEach(links, link =>
             {
-                string text = link.Item2;
-                if (string.IsNullOrWhiteSpace(text))
+                string originalText = link.Item2?.Trim();
+                if (string.IsNullOrWhiteSpace(originalText))
                     return;
 
-                string cleanName = Myrient_CleanGameName(text).Replace(".zip", "").Trim();
+                // Remove .zip extension and region tags for matching
+                string cleanName = originalText;
+                if (cleanName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                    cleanName = cleanName.Substring(0, cleanName.Length - ".zip".Length);
+                // Remove region tags like (USA), (Europe), etc.
+                cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"\s*\(.*?\)$", "");
+                cleanName = cleanName.Trim();
+
+                // Fallback if name is still empty
                 if (string.IsNullOrEmpty(cleanName))
-                    cleanName = fallbackRegex.Replace(text, "$1").Replace('-', ' ').Trim();
-                if (string.IsNullOrEmpty(cleanName))
+                    cleanName = originalText;
+
+                // Normalize name for matching and deduplication
+                string normalizedName = Myrient_NormalizeGameName(cleanName);
+                string platformName = "Microsoft Xbox 360";
+                string uniqueKey = $"{normalizedName}|{platformName}";
+
+                // Log for debug
+                logger.Info($"[Xbox360_Games] Scraped: '{originalText}', cleaned: '{cleanName}', normalized: '{normalizedName}'");
+
+                // O(1) skip if the game exists in the Playnite DB with "Download: Myrient" action
+                if (dbGameKeysPerPlatform.Contains(uniqueKey))
                     return;
 
-                string normalizedKey = Myrient_NormalizeGameName(cleanName);
-
-                // Fast skip if exists in DB
-                if (dbGameKeys.Contains(normalizedKey))
-                    return;
-
+                // Always assign only Xbox 360 platform here
                 var metadata = new GameMetadata
                 {
                     Name = cleanName,
-                    GameId = normalizedKey.ToLower(),
-                    Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty("Microsoft Xbox 360") },
+                    GameId = uniqueKey.ToLower(),
+                    Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty(platformName) },
                     GameActions = new List<GameAction>
             {
                 new GameAction
                 {
                     Name = "Download: Myrient",
                     Type = GameActionType.URL,
-                    Path = Xbox360_Games_BaseUrl,
+                    Path = link.Item1,
                     IsPlayAction = false
                 }
             },
                     IsInstalled = false
                 };
 
+                var xenia = PlayniteApi.Database.Emulators.FirstOrDefault(e => e.Name.Equals("Xenia", StringComparison.OrdinalIgnoreCase));
+                if (xenia != null && xenia.BuiltinProfiles != null)
+                {
+                    var x360Profile = xenia.BuiltinProfiles.FirstOrDefault(p => p.Name.Equals("Xbox 360", StringComparison.OrdinalIgnoreCase));
+                    if (x360Profile != null)
+                    {
+                        metadata.GameActions.Add(new GameAction
+                        {
+                            Name = "Play",
+                            Type = GameActionType.Emulator,
+                            EmulatorId = xenia.Id,
+                            EmulatorProfileId = x360Profile.Id,
+                            Path = link.Item1, // Note: This is the download link; you probably want to set this to the ROM path when installed
+                            IsPlayAction = true
+                        });
+                    }
+                }
+
                 results.Add(metadata);
             });
 
-            logger.Info($"[Microsoft_Xbox360_Games] Scraping completed. Total new games added: {results.Count}");
+            logger.Info($"[Xbox360_Games] Scraping completed. Total new games added: {results.Count}");
             return results.ToList();
         }
-
-
-        // XBLA ROM Finder
-        private List<string> FindXBLAGameRoms(string gameName)
+        private List<string> FindXbox360DigitalGameRoms(string gameName)
         {
+            // Use same extensions and directory as disc-based
             var romPaths = new List<string>();
-            var searchExtensions = new[] { ".iso", ".xex", ".zar" };
-            // Updated directory for XBLA games
-            var searchDirectory = "Roms\\Microsoft Xbox 360\\XBLA";
+            var searchExtensions = new[] { ".zar", ".iso", ".xex" };
+            var searchDirectory = "Roms\\Microsoft - Xbox 360"; // Digital and Disc together
 
             foreach (var drive in System.IO.DriveInfo.GetDrives().Where(d => d.IsReady))
             {
@@ -2151,98 +2171,139 @@ namespace GameStore
                 }
                 catch (Exception ex)
                 {
-                    logger.Error($"Error searching XBLA ROMs in drive {drive.Name}: {ex.Message}");
+                    logger.Error($"Error searching Xbox 360 Digital ROMs in drive {drive.Name}: {ex.Message}");
                 }
             }
 
             return romPaths;
         }
 
-        // XBLA Static Page Scraper
-        private async Task<List<GameMetadata>> Myrient_Microsoft_XBLAGame_ScrapeStaticPage()
+        // 2. Scraper for "Xbox 360 Digital"
+        private async Task<List<GameMetadata>> Myrient_Xbox360Digital_ScrapeStaticPage()
         {
-            // Collect normalized names of existing games for duplicate prevention.
-            var dbGameKeys = new HashSet<string>(
+            // O(1) lookup: Only games with Download: Myrient action for this pluginId & platform
+            var dbGameKeysPerPlatform = new HashSet<string>(
                 PlayniteApi.Database.Games
-                    .Where(g => g.PluginId == Id)
-                    .Select(g => Myrient_NormalizeGameName(g.Name)),
+                    .Where(g => g.PluginId == Id
+                        && g.Platforms != null
+                        && g.GameActions != null
+                        && g.GameActions.Any(a => a.Name.Equals("Download: Myrient", StringComparison.OrdinalIgnoreCase)))
+                    .SelectMany(g => g.Platforms.Select(p => $"{Myrient_NormalizeGameName(g.Name)}|{p.Name}")),
                 StringComparer.OrdinalIgnoreCase);
 
-            // Fetch the static HTML page content.
-            logger.Info($"[XBLA_Games] Scraping games from: {Xbla_Games_BaseUrl}");
-            var pageContent = await Myrient_LoadPageContent(Xbla_Games_BaseUrl).ConfigureAwait(false);
+            logger.Info($"[Xbox360Digital_Games] Scraping games from: {Xbox360Digital_Games_BaseUrl}");
+
+            string pageContent = await Myrient_LoadPageContent(Xbox360Digital_Games_BaseUrl).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(pageContent))
             {
-                logger.Warn("[XBLA_Games] Failed to retrieve main page content.");
+                logger.Warn("[Xbox360Digital_Games] Failed to retrieve main page content.");
                 return new List<GameMetadata>();
             }
-            logger.Info($"[XBLA_Games] Page content retrieved successfully ({pageContent.Length} characters).");
+            logger.Info($"[Xbox360Digital_Games] Page content retrieved successfully ({pageContent.Length} characters).");
 
-            // Parse links for XBLA zips.
+            // Get all .zip links (unfiltered)
             var links = Myrient_ParseLinks(pageContent)?
-                .Where(link =>
-                    link.Item1.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
-                    link.Item2.IndexOf("(XBLA)", StringComparison.OrdinalIgnoreCase) >= 0)
+                .Where(link => link.Item1.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                 .ToArray();
 
             if (links == null || links.Length == 0)
             {
-                logger.Info("[XBLA_Games] No valid game links found.");
+                logger.Info("[Xbox360Digital_Games] No valid game links found.");
                 return new List<GameMetadata>();
             }
-            logger.Info($"[XBLA_Games] Found {links.Length} XBLA game links.");
+            logger.Info($"[Xbox360Digital_Games] Found {links.Length} .zip links before XBLA/XBLIG filtering.");
 
-            // ConcurrentBag for thread-safe parallel population
             var results = new ConcurrentBag<GameMetadata>();
 
             Parallel.ForEach(links, link =>
             {
-                var text = link.Item2;
+                string text = link.Item2;
                 if (string.IsNullOrWhiteSpace(text))
                     return;
 
-                // Clean the game name
-                var cleanName = Myrient_CleanGameName(text);
-                cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, "\\.zip", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, "\\(XBLA\\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                cleanName = cleanName.Trim();
+                // Strict filtering: Only allow games with "(XBLA)" or "(XBLIG)", block others
+                string lowerText = text.ToLower();
+                if (!lowerText.Contains("(xbla)") && !lowerText.Contains("(xblig)"))
+                    return;
 
+                string cleanName = Myrient_CleanGameName(text).Replace(".zip", "").Trim();
                 if (string.IsNullOrEmpty(cleanName))
                     cleanName = fallbackRegex.Replace(text, "$1").Replace('-', ' ').Trim();
                 if (string.IsNullOrEmpty(cleanName))
                     return;
 
-                var normalizedKey = Myrient_NormalizeGameName(cleanName);
-                if (dbGameKeys.Contains(normalizedKey))
+                string platformName = "Microsoft Xbox 360";
+                string uniqueKey = $"{Myrient_NormalizeGameName(cleanName)}|{platformName}";
+
+                // O(1) skip if the game already exists in the Playnite DB with "Download: Myrient" action
+                if (dbGameKeysPerPlatform.Contains(uniqueKey))
                     return;
 
                 var metadata = new GameMetadata
                 {
                     Name = cleanName,
-                    GameId = normalizedKey.ToLowerInvariant(),
+                    GameId = uniqueKey.ToLower(),
+                    Platforms = new HashSet<MetadataProperty> { new MetadataSpecProperty(platformName) },
                     GameActions = new List<GameAction>
             {
                 new GameAction
                 {
                     Name = "Download: Myrient",
                     Type = GameActionType.URL,
-                    Path = Xbla_Games_BaseUrl,
+                    Path = Xbox360Digital_Games_BaseUrl,
                     IsPlayAction = false
                 }
             },
-                    IsInstalled = false // Platform set below!
+                    IsInstalled = false
                 };
 
-                // Assign the XBLA platform, always null-safe
-                AddXboxLiveArcadePlatform(metadata);
+                var xenia = PlayniteApi.Database.Emulators.FirstOrDefault(e => e.Name.Equals("Xenia", StringComparison.OrdinalIgnoreCase));
+                if (xenia != null && xenia.BuiltinProfiles != null)
+                {
+                    var x360Profile = xenia.BuiltinProfiles.FirstOrDefault(p => p.Name.Equals("Xbox 360", StringComparison.OrdinalIgnoreCase));
+                    if (x360Profile != null)
+                    {
+                        metadata.GameActions.Add(new GameAction
+                        {
+                            Name = "Play",
+                            Type = GameActionType.Emulator,
+                            EmulatorId = xenia.Id,
+                            EmulatorProfileId = x360Profile.Id,
+                            Path = link.Item1,
+                            IsPlayAction = true
+                        });
+                    }
+                }
 
                 results.Add(metadata);
             });
 
-            logger.Info($"[XBLA_Games] Scraping completed. Total new games added: {results.Count}");
+            logger.Info($"[Xbox360Digital_Games] Scraping completed. Total new games added: {results.Count}");
             return results.ToList();
         }
+        // Test to see ig Xbox Digital platform gets added, remove if fails:
 
+        public static MetadataSpecProperty GetOrCreateXbox360DigitalPlatform(IPlayniteAPI api)
+        {
+            const string platformName = "Microsoft Xbox 360 Digital";
+
+            // Try to find existing platform
+            var platform = api.Database.Platforms.FirstOrDefault(p =>
+                p.Name.Equals(platformName, StringComparison.OrdinalIgnoreCase));
+            if (platform == null)
+            {
+                // Create if not found
+                var newPlatform = new Platform(platformName);
+                api.Database.Platforms.Add(newPlatform); // Add returns void in Playnite 9, Guid in Playnite 10
+                                                         // Fetch the newly created platform
+                platform = api.Database.Platforms.FirstOrDefault(p => p.Name.Equals(platformName, StringComparison.OrdinalIgnoreCase));
+            }
+            if (platform != null)
+            {
+                return new MetadataSpecProperty(platform.Id.ToString());
+            }
+            return null;
+        }
 
         private async Task<int> GetLatestPageNumber()
         {
@@ -3890,12 +3951,16 @@ namespace GameStore
                     return;
                 }
                 string url = downloadAction.Path;
-                Process.Start(new ProcessStartInfo
+
+                await Task.Run(() =>
                 {
-                    FileName = "cmd",
-                    Arguments = $"/c start \"\" \"{url}\"",
-                    CreateNoWindow = true,
-                    UseShellExecute = false
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "cmd",
+                        Arguments = $"/c start \"\" \"{url}\"",
+                        CreateNoWindow = true,
+                        UseShellExecute = false
+                    });
                 });
             }
 
