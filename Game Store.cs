@@ -61,8 +61,7 @@ namespace GameStore
 
         }
 
-
-
+               
 
         public override IEnumerable<GameMetadata> GetGames(LibraryGetGamesArgs args)
         {
@@ -551,51 +550,57 @@ namespace GameStore
             }
 
 
-            // Find all Xbox 360 ROMs once
-            var Xbox360Roms = FindXbox360GameRoms("");
+            // 1. Gather all Xbox 360 ROMs with supported extensions
+            var xbox360RomExtensions = new[] { ".zar", ".xex", ".god", ".iso" };
+            var xbox360Roms = new List<string>();
+            const string searchDirectory = @"Roms\Microsoft - Xbox 360\Games";
 
-            // Log file path
-            var logPath = Path.Combine(
-                PlayniteApi.Paths.ConfigurationPath ?? "",
-                "Xbox 360.txt"
-            );
+            foreach (var drive in System.IO.DriveInfo.GetDrives().Where(d => d.IsReady))
+            {
+                try
+                {
+                    var rootPath = Path.Combine(drive.RootDirectory.FullName, searchDirectory);
+                    if (Directory.Exists(rootPath))
+                    {
+                        xbox360Roms.AddRange(
+                            Directory.EnumerateFiles(rootPath, "*.*", SearchOption.AllDirectories)
+                                .Where(file => xbox360RomExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+                        );
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Error($"Error searching Xbox 360 ROMs in drive {drive.Name}: {ex.Message}");
+                }
+            }
 
-            // Write all found ROMs to log, also log normalized names for debugging
+            // 2. Prepare log file path
+            var logPath = Path.Combine(PlayniteApi.Paths.ConfigurationPath ?? "", "Xbox 360.txt");
             File.WriteAllText(logPath, "=== Xbox 360 ROMs Found ===\n");
-            foreach (var rom in Xbox360Roms)
+            foreach (var rom in xbox360Roms)
             {
                 var romNorm = Myrient_NormalizeGameName(Path.GetFileNameWithoutExtension(rom));
                 File.AppendAllText(logPath, $"{rom}\n    Normalized: {romNorm}\n");
             }
-
-            // Build a hash set of normalized name + platform for fast O(1) existence check (like Wii/PS2)
-            var dbGameKeys = new HashSet<string>(
-                PlayniteApi.Database.Games
-                    .Where(g => g.PluginId == Id && g.Platforms != null)
-                    .SelectMany(g => g.Platforms.Select(p => $"{Myrient_NormalizeGameName(g.Name)}|{p.Name}")),
-                StringComparer.OrdinalIgnoreCase);
-
-            // Local set to prevent duplicate adds in this run
-            var processedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
             File.AppendAllText(logPath, "\n=== Xbox 360 Games Scanned ===\n");
 
+            // 3. Prevent duplicate processing in this run
+            var processedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // 4. For all scraped games, update install state if ROM matched
             foreach (var game in Myrient_Xbox360_ScrapeStaticPage().GetAwaiter().GetResult())
             {
                 string norm = Myrient_NormalizeGameName(game.Name);
                 string platformName = "Microsoft Xbox 360";
                 string uniqueKey = $"{norm}|{platformName}";
 
-                // Fast skip if exists in DB or already processed this run
-                if (dbGameKeys.Contains(uniqueKey) || processedKeys.Contains(uniqueKey))
+                if (!processedKeys.Add(uniqueKey))
                     continue;
-                processedKeys.Add(uniqueKey);
 
-                // Use the same normalization for both sides!
-                var matchingRoms = Xbox360Roms.Where(r =>
-                    Myrient_NormalizeGameName(Path.GetFileNameWithoutExtension(r)).Equals(norm, StringComparison.OrdinalIgnoreCase)).ToList();
+                var matchingRoms = xbox360Roms
+                    .Where(r => Myrient_NormalizeGameName(Path.GetFileNameWithoutExtension(r)).Equals(norm, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
 
-                // Log matching process for each game
                 File.AppendAllText(logPath, $"Game: {game.Name}\n  Normalized: {norm}\n");
 
                 if (matchingRoms.Any())
@@ -603,25 +608,21 @@ namespace GameStore
                     File.AppendAllText(logPath, $"  MATCHED ROMS:\n");
                     foreach (var rom in matchingRoms)
                         File.AppendAllText(logPath, $"    {rom}\n");
-                }
-                else
-                {
-                    File.AppendAllText(logPath, $"  No matching ROM found.\n");
-                }
 
-                if (matchingRoms.Any())
-                {
                     game.IsInstalled = true;
                     game.InstallDirectory = Path.GetDirectoryName(matchingRoms.First());
                     game.Roms = matchingRoms.Select(r => new GameRom { Name = Path.GetFileName(r), Path = r }).ToList();
 
-                    // -- Emulator Play Action --
+                    // Add (or update) emulator play action for Xenia
                     var xenia = PlayniteApi.Database.Emulators.FirstOrDefault(e => e.Name.Equals("Xenia", StringComparison.OrdinalIgnoreCase));
                     if (xenia != null && xenia.BuiltinProfiles != null && xenia.BuiltinProfiles.Any())
                     {
                         var profile = xenia.BuiltinProfiles.First();
                         if (game.GameActions == null)
                             game.GameActions = new List<GameAction>();
+
+                        // Remove old emulator actions to avoid duplicates
+                        game.GameActions.RemoveAll(a => a.Type == GameActionType.Emulator);
 
                         game.GameActions.Add(new GameAction
                         {
@@ -634,9 +635,13 @@ namespace GameStore
                         });
                     }
                 }
+                else
+                {
+                    File.AppendAllText(logPath, $"  No matching ROM found.\n");
+                }
+
                 allGames.Add(game);
             }
-
 
             // Find all Xbox 360 Digital ROMs once
             var Xbox360DigitalRoms = FindXbox360DigitalGameRoms("");
